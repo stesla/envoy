@@ -170,7 +170,7 @@ func OpenLog(namefmt string, r io.Reader) (*logger, error) {
 		return nil, err
 	}
 
-	log := &logger{r, f}
+	log := &logger{&stripTelnet{r, stateNormal}, f}
 	return log, nil
 }
 
@@ -190,4 +190,61 @@ func (l *logger) Read(p []byte) (int, error) {
 		}
 	}
 	return nr, er
+}
+
+type stripTelnet struct {
+	r io.Reader
+	s state
+}
+
+const (
+	telnetWILL = 251 + iota
+	telnetWONT
+	telnetDO
+	telnetDONT
+	telnetIAC
+)
+
+func (st *stripTelnet) Read(p []byte) (int, error) {
+	q := make([]byte, len(p))
+	nr, er := st.r.Read(q)
+	if er != nil {
+		return nr, er
+	}
+	var n int
+	for _, c := range q[0:nr] {
+		var ok bool
+		st.s, ok = st.s(c)
+		if ok {
+			p[n] = c
+			n++
+		}
+	}
+	return n, nil
+}
+
+type state func(byte) (state, bool)
+
+func stateNormal(c byte) (state, bool) {
+	switch c {
+	case telnetIAC:
+		return stateIAC, false
+	default:
+		return stateNormal, true
+	}
+}
+
+func stateIAC(c byte) (state, bool) {
+	switch c {
+	case telnetWILL, telnetWONT, telnetDO, telnetDONT:
+		return stateOption, false
+	case telnetIAC:
+		return stateNormal, true
+	default:
+		return stateNormal, false
+	}
+}
+
+func stateOption(c byte) (state, bool) {
+	return stateNormal, false
 }
