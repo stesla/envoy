@@ -6,9 +6,12 @@ import (
 	"io"
 	"log"
 	"net"
+	"os"
 	"strings"
 	"sync"
+	"time"
 
+	homedir "github.com/mitchellh/go-homedir"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -28,12 +31,6 @@ func init() {
 	rootCmd.AddCommand(startCmd)
 }
 
-type proxy struct {
-	Name     string
-	Password string
-	Server   string
-}
-
 func ReadProxies() (out map[string]*proxy) {
 	out = make(map[string]*proxy)
 	for name, _ := range viper.GetStringMapString("proxies") {
@@ -42,6 +39,7 @@ func ReadProxies() (out map[string]*proxy) {
 			Name:     name,
 			Password: p["password"],
 			Server:   p["server"],
+			Log:      p["log"],
 		}
 	}
 	return
@@ -81,7 +79,7 @@ func session(client net.Conn) {
 	}
 	proxyName := strings.ToLower(strings.TrimSpace(line))
 	obj, found := proxies.Load(proxyName)
-	proxy, _ := obj.(*proxy)
+	proxy := *obj.(*proxy)
 
 	var password string
 	if found {
@@ -96,32 +94,100 @@ func session(client net.Conn) {
 		fmt.Fprintln(client, "invalid proxy name or password")
 		return
 	}
+	proxy.Serve(r, client)
+}
 
-	server, err := net.Dial("tcp", proxy.Server)
+type proxy struct {
+	Name     string
+	Password string
+	Server   string
+	Log      string
+
+	cr, sr io.Reader
+	cw, sw io.Writer
+	cc, sc chan bool
+}
+
+func (p *proxy) Serve(r io.Reader, w io.Writer) {
+	p.cr, p.cw = r, w
+
+	conn, err := net.Dial("tcp", p.Server)
 	if err != nil {
-		fmt.Fprintln(client, "error connecting to server:", err)
+		fmt.Fprintln(w, "error connecting to server:", err)
 		return
 	}
-	defer server.Close()
+	defer conn.Close()
+	p.sr, p.sw = conn, conn
 
-	cch := make(chan bool)
+	if p.Log != "" {
+		log, err := OpenLog(p.Log, p.sr)
+		if err != nil {
+			fmt.Fprintln(w, "error opening log:", err)
+			return
+		}
+		defer log.Close()
+		p.sr = log
+	}
+
+	// send input to the server
+	p.cc = make(chan bool)
 	go func() {
-		io.Copy(server, r)
-		close(cch)
+		io.Copy(p.sw, p.cr)
+		close(p.cc)
 	}()
 
-	sch := make(chan bool)
+	// send output to the client
+	p.sc = make(chan bool)
 	go func() {
-		io.Copy(client, server)
-		close(sch)
+		io.Copy(p.cw, p.sr)
+		close(p.sc)
 	}()
 
+	// wait until one direction closes, and then close the socket
 	select {
-	case <-cch:
+	case <-p.cc:
 		return
 
-	case <-sch:
-		fmt.Fprintln(client, "connection closed by server")
+	case <-p.sc:
+		fmt.Fprintln(w, "connection closed by server")
 		return
 	}
+}
+
+type logger struct {
+	r io.Reader
+	f *os.File
+}
+
+func OpenLog(namefmt string, r io.Reader) (*logger, error) {
+	t := time.Now()
+	filename, err := homedir.Expand(t.Format(namefmt))
+	if err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return nil, err
+	}
+
+	log := &logger{r, f}
+	return log, nil
+}
+
+func (l *logger) Close() error {
+	return l.f.Close()
+}
+
+func (l *logger) Read(p []byte) (int, error) {
+	nr, er := l.r.Read(p)
+	if nr > 0 {
+		nw, ew := l.f.Write(p[0:nr])
+		if ew != nil {
+			return nw, ew
+		}
+		if nr != nw {
+			return nw, io.ErrShortWrite
+		}
+	}
+	return nr, er
 }

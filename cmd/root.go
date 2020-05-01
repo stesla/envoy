@@ -3,9 +3,9 @@ package cmd
 import (
 	"log"
 
+	homedir "github.com/mitchellh/go-homedir"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"k8s.io/client-go/util/homedir"
 )
 
 var (
@@ -30,7 +30,10 @@ func initConfig() {
 	if cfgFile != "" {
 		viper.SetConfigFile(cfgFile)
 	} else {
-		home := homedir.HomeDir()
+		home, err := homedir.Dir()
+		if err != nil {
+			log.Fatalln("error finding home directory:", err)
+		}
 		viper.AddConfigPath(home)
 		viper.SetConfigName(".envoy.yaml")
 		viper.SetConfigType("yaml")
