@@ -102,7 +102,6 @@ type proxy struct {
 
 	cr, sr io.Reader
 	cw, sw io.Writer
-	cc, sc chan bool
 }
 
 func (p *proxy) Serve(r io.Reader, w io.Writer) {
@@ -133,27 +132,24 @@ func (p *proxy) Serve(r io.Reader, w io.Writer) {
 	}
 
 	// send input to the server
-	p.cc = make(chan bool)
+	cc := make(chan bool)
 	go func() {
 		io.Copy(p.sw, p.cr)
-		close(p.cc)
+		close(cc)
 	}()
 
 	// send output to the client
-	p.sc = make(chan bool)
+	sc := make(chan bool)
 	go func() {
 		io.Copy(p.cw, p.sr)
-		close(p.sc)
+		close(sc)
 	}()
 
 	// wait until one direction closes, and then close the socket
 	select {
-	case <-p.cc:
-		return
-
-	case <-p.sc:
+	case <-cc:
+	case <-sc:
 		fmt.Fprintln(w, "connection closed by server")
-		return
 	}
 }
 
