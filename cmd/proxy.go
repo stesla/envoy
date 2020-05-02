@@ -6,12 +6,9 @@ import (
 	"io"
 	"log"
 	"net"
-	"os"
 	"strings"
 	"sync"
-	"time"
 
-	homedir "github.com/mitchellh/go-homedir"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -38,10 +35,15 @@ func ReadProxies() (out map[string]*proxy) {
 		out[name] = &proxy{
 			Name:      name,
 			Password:  p["password"],
-			Server:    p["server"],
+			Address:   p["address"],
 			Log:       p["log"],
 			OnConnect: p["onconnect"],
+
+			addClient: make(chan addClientReq),
+			close:     make(chan chan error),
+			write:     make(chan writeReq),
 		}
+		go out[name].loop()
 	}
 	return
 }
@@ -65,147 +67,177 @@ func start(cmd *cobra.Command, args []string) {
 			log.Fatal(err)
 		}
 
-		go session(conn)
+		go startsession(conn)
 	}
 }
 
-func session(client net.Conn) {
-	defer client.Close()
-
-	r := bufio.NewReader(client)
+func startsession(conn net.Conn) {
+	r := bufio.NewReader(conn)
 
 	line, err := r.ReadString('\n')
 	if err != nil {
+		conn.Close()
 		return
 	}
 	words := strings.Split(strings.TrimSpace(line), " ")
 	if len(words) != 3 || words[0] != "connect" {
+		conn.Close()
 		return
 	}
 	proxyName := strings.ToLower(words[1])
 	obj, found := proxies.Load(proxyName)
-	proxy := *obj.(*proxy)
+	proxy := obj.(*proxy)
 
 	if !found || words[2] != proxy.Password {
-		fmt.Fprintln(client, "invalid proxy name or password")
+		fmt.Fprintln(conn, "invalid proxy name or password")
+		conn.Close()
 		return
 	}
-	proxy.Serve(r, client)
+
+	err = proxy.AddClient(&client{Reader: r, WriteCloser: conn})
+	if err != nil {
+		msg := fmt.Sprintf("error connecting to world '%s': %v", proxy.Name, err)
+		log.Println(msg)
+		fmt.Fprintln(conn, msg)
+		conn.Close()
+		return
+	}
 }
 
 type proxy struct {
 	Name      string
 	Password  string
-	Server    string
+	Address   string
 	Log       string
 	OnConnect string
 
-	sync.Mutex
-
-	conn net.Conn
-	log  *logger
-
-	sr io.Reader
-	sw io.Writer
+	addClient chan addClientReq
+	close     chan chan error
+	write     chan writeReq
 }
 
-func (p *proxy) Connect() (first bool, err error) {
-	p.Lock()
-	defer p.Unlock()
-	if p.conn != nil {
-		return false, nil
-	}
-	first = true
-	p.conn, err = net.Dial("tcp", p.Server)
+func (p *proxy) connect() (conn net.Conn, err error) {
+	conn, err = net.Dial("tcp", p.Address)
 	return
 }
 
-func (p *proxy) StartLog() (err error) {
-	p.Lock()
-	defer p.Unlock()
-	if p.Log != "" && p.log == nil {
-		p.log, err = OpenLog(p.Log, p.sr)
-		p.sr = p.log
-	}
-	return
-}
+func (p *proxy) loop() {
+	var clients = make(map[Client]struct{})
+	var server net.Conn
+	var readServer chan struct{}
+	var readDone chan struct{}
+	var writeClient = make(chan []byte)
+	var writeServer = p.write
+	var writeDone chan struct{}
+	for {
+		var err error
 
-func (p *proxy) Serve(clientr io.Reader, clientw io.Writer) {
-	first, err := p.Connect()
-	if err != nil {
-		fmt.Fprintln(clientw, "error connecting to server:", err)
-	}
-	p.sr, p.sw = p.conn, p.conn
-
-	if first {
-		if err := p.StartLog(); err != nil {
-			fmt.Fprintln(clientw, "error opening log:", err)
+		if readDone == nil && len(clients) > 0 {
+			readServer = make(chan struct{}, 1)
+			readServer <- struct{}{}
 		}
-		_, err = fmt.Fprintln(p.sw, p.OnConnect)
-		if err != nil {
-			fmt.Fprintln(clientw, "error sending connect string:", err)
-			return
-		}
-	}
 
-	// send input to the server
-	cc := make(chan bool)
-	go func() {
-		io.Copy(p.sw, clientr)
-		close(cc)
-	}()
+		select {
+		case ch := <-p.close:
+			for c, _ := range clients {
+				delete(clients, c)
+				c.Close()
+			}
+			ch <- server.Close()
+			server = nil
 
-	// send output to the client
-	sc := make(chan bool)
-	go func() {
-		io.Copy(clientw, p.sr)
-		close(sc)
-	}()
+		case req := <-p.addClient:
+			if server == nil {
+				server, err = p.connect()
+				if err != nil {
+					req.ch <- err
+					server = nil
+					break
+				}
+			}
+			close(req.ch)
+			clients[req.c] = struct{}{}
+			go io.Copy(p, req.c)
 
-	// wait until one direction closes, and then close the socket
-	select {
-	case <-cc:
-	case <-sc:
-		fmt.Fprintln(clientw, "connection closed by server")
-	}
-}
+		case buf := <-writeClient:
+			for c, _ := range clients {
+				nw, ew := c.Write(buf)
+				if ew != nil || nw != len(buf) {
+					delete(clients, c)
+					c.Close()
+				}
+			}
 
-type logger struct {
-	r io.Reader
-	f *os.File
-}
+		case req := <-writeServer:
+			writeServer = nil
+			writeDone = make(chan struct{}, 1)
+			go func() {
+				nw, ew := server.Write(req.buf)
+				req.ch <- ioresult{nw, ew}
+				writeDone <- struct{}{}
+			}()
 
-func OpenLog(namefmt string, r io.Reader) (*logger, error) {
-	t := time.Now()
-	filename, err := homedir.Expand(t.Format(namefmt))
-	if err != nil {
-		return nil, err
-	}
-	f, err := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return nil, err
-	}
+		case <-writeDone:
+			writeDone = nil
+			writeServer = p.write
 
-	log := &logger{&stripTelnet{r, stateNormal}, f}
-	return log, nil
-}
+		case <-readServer:
+			readServer = nil
+			readDone = make(chan struct{}, 1)
+			go func() {
+				buf := make([]byte, 1024)
+				nr, er := server.Read(buf)
+				if er != nil {
+					// TODO: notify clients server d/c'd
+					p.Close()
+					return
+				}
+				writeClient <- buf[:nr]
+				readDone <- struct{}{}
+			}()
 
-func (l *logger) Close() error {
-	return l.f.Close()
-}
-
-func (l *logger) Read(p []byte) (int, error) {
-	nr, er := l.r.Read(p)
-	if nr > 0 {
-		nw, ew := l.f.Write(p[0:nr])
-		if ew != nil {
-			return nw, ew
-		}
-		if nr != nw {
-			return nw, io.ErrShortWrite
+		case <-readDone:
+			readDone = nil
 		}
 	}
-	return nr, er
+}
+
+type Client interface {
+	io.ReadWriteCloser
+}
+
+type addClientReq struct {
+	c  Client
+	ch chan error
+}
+
+func (p *proxy) AddClient(c Client) error {
+	ch := make(chan error)
+	p.addClient <- addClientReq{c, ch}
+	return <-ch
+}
+
+func (p *proxy) Close() error {
+	ch := make(chan error)
+	p.close <- ch
+	return <-ch
+}
+
+type writeReq struct {
+	buf []byte
+	ch  chan<- ioresult
+}
+
+type ioresult struct {
+	n   int
+	err error
+}
+
+func (p *proxy) Write(data []byte) (int, error) {
+	ch := make(chan ioresult)
+	p.write <- writeReq{data, ch}
+	r := <-ch
+	return r.n, r.err
 }
 
 type stripTelnet struct {
@@ -263,4 +295,9 @@ func stateIAC(c byte) (state, bool) {
 
 func stateOption(c byte) (state, bool) {
 	return stateNormal, false
+}
+
+type client struct {
+	io.Reader
+	io.WriteCloser
 }
