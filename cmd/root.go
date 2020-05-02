@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"log"
+	"net/http"
+	_ "net/http/pprof"
 
 	homedir "github.com/mitchellh/go-homedir"
 	"github.com/spf13/cobra"
@@ -43,5 +45,12 @@ func initConfig() {
 
 	if err := viper.ReadInConfig(); err == nil {
 		log.Printf("loaded config at '%s'", viper.ConfigFileUsed())
+	}
+
+	if addr := viper.GetString("debugaddr"); addr != "" {
+		go func() {
+			log.Printf("pprof listening on '%s'", addr)
+			log.Println(http.ListenAndServe(addr, nil))
+		}()
 	}
 }
