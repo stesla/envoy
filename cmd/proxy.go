@@ -36,10 +36,11 @@ func ReadProxies() (out map[string]*proxy) {
 	for name, _ := range viper.GetStringMapString("proxies") {
 		p := viper.GetStringMapString("proxies." + name)
 		out[name] = &proxy{
-			Name:     name,
-			Password: p["password"],
-			Server:   p["server"],
-			Log:      p["log"],
+			Name:      name,
+			Password:  p["password"],
+			Server:    p["server"],
+			Log:       p["log"],
+			OnConnect: p["onconnect"],
 		}
 	}
 	return
@@ -77,20 +78,15 @@ func session(client net.Conn) {
 	if err != nil {
 		return
 	}
-	proxyName := strings.ToLower(strings.TrimSpace(line))
+	words := strings.Split(strings.TrimSpace(line), " ")
+	if len(words) != 3 || words[0] != "connect" {
+		return
+	}
+	proxyName := strings.ToLower(words[1])
 	obj, found := proxies.Load(proxyName)
 	proxy := *obj.(*proxy)
 
-	var password string
-	if found {
-		line, err = r.ReadString('\n')
-		if err != nil {
-			return
-		}
-		password = strings.TrimSpace(line)
-	}
-
-	if !found || password != proxy.Password {
+	if !found || words[2] != proxy.Password {
 		fmt.Fprintln(client, "invalid proxy name or password")
 		return
 	}
@@ -98,10 +94,11 @@ func session(client net.Conn) {
 }
 
 type proxy struct {
-	Name     string
-	Password string
-	Server   string
-	Log      string
+	Name      string
+	Password  string
+	Server    string
+	Log       string
+	OnConnect string
 
 	cr, sr io.Reader
 	cw, sw io.Writer
@@ -127,6 +124,12 @@ func (p *proxy) Serve(r io.Reader, w io.Writer) {
 		}
 		defer log.Close()
 		p.sr = log
+	}
+
+	_, err = fmt.Fprintln(p.sw, p.OnConnect)
+	if err != nil {
+		fmt.Fprintln(w, "error sending connect string:", err)
+		return
 	}
 
 	// send input to the server
