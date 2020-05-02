@@ -100,33 +100,52 @@ type proxy struct {
 	Log       string
 	OnConnect string
 
+	sync.Mutex
+
+	conn net.Conn
+	log  *logger
+
 	sr io.Reader
 	sw io.Writer
 }
 
+func (p *proxy) Connect() (first bool, err error) {
+	p.Lock()
+	defer p.Unlock()
+	if p.conn != nil {
+		return false, nil
+	}
+	first = true
+	p.conn, err = net.Dial("tcp", p.Server)
+	return
+}
+
+func (p *proxy) StartLog() (err error) {
+	p.Lock()
+	defer p.Unlock()
+	if p.Log != "" && p.log == nil {
+		p.log, err = OpenLog(p.Log, p.sr)
+		p.sr = p.log
+	}
+	return
+}
+
 func (p *proxy) Serve(clientr io.Reader, clientw io.Writer) {
-	conn, err := net.Dial("tcp", p.Server)
+	first, err := p.Connect()
 	if err != nil {
 		fmt.Fprintln(clientw, "error connecting to server:", err)
-		return
 	}
-	defer conn.Close()
-	p.sr, p.sw = conn, conn
+	p.sr, p.sw = p.conn, p.conn
 
-	if p.Log != "" {
-		log, err := OpenLog(p.Log, p.sr)
-		if err != nil {
+	if first {
+		if err := p.StartLog(); err != nil {
 			fmt.Fprintln(clientw, "error opening log:", err)
+		}
+		_, err = fmt.Fprintln(p.sw, p.OnConnect)
+		if err != nil {
+			fmt.Fprintln(clientw, "error sending connect string:", err)
 			return
 		}
-		defer log.Close()
-		p.sr = log
-	}
-
-	_, err = fmt.Fprintln(p.sw, p.OnConnect)
-	if err != nil {
-		fmt.Fprintln(clientw, "error sending connect string:", err)
-		return
 	}
 
 	// send input to the server
