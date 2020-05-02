@@ -100,16 +100,14 @@ type proxy struct {
 	Log       string
 	OnConnect string
 
-	cr, sr io.Reader
-	cw, sw io.Writer
+	sr io.Reader
+	sw io.Writer
 }
 
-func (p *proxy) Serve(r io.Reader, w io.Writer) {
-	p.cr, p.cw = r, w
-
+func (p *proxy) Serve(clientr io.Reader, clientw io.Writer) {
 	conn, err := net.Dial("tcp", p.Server)
 	if err != nil {
-		fmt.Fprintln(w, "error connecting to server:", err)
+		fmt.Fprintln(clientw, "error connecting to server:", err)
 		return
 	}
 	defer conn.Close()
@@ -118,7 +116,7 @@ func (p *proxy) Serve(r io.Reader, w io.Writer) {
 	if p.Log != "" {
 		log, err := OpenLog(p.Log, p.sr)
 		if err != nil {
-			fmt.Fprintln(w, "error opening log:", err)
+			fmt.Fprintln(clientw, "error opening log:", err)
 			return
 		}
 		defer log.Close()
@@ -127,21 +125,21 @@ func (p *proxy) Serve(r io.Reader, w io.Writer) {
 
 	_, err = fmt.Fprintln(p.sw, p.OnConnect)
 	if err != nil {
-		fmt.Fprintln(w, "error sending connect string:", err)
+		fmt.Fprintln(clientw, "error sending connect string:", err)
 		return
 	}
 
 	// send input to the server
 	cc := make(chan bool)
 	go func() {
-		io.Copy(p.sw, p.cr)
+		io.Copy(p.sw, clientr)
 		close(cc)
 	}()
 
 	// send output to the client
 	sc := make(chan bool)
 	go func() {
-		io.Copy(p.cw, p.sr)
+		io.Copy(clientw, p.sr)
 		close(sc)
 	}()
 
@@ -149,7 +147,7 @@ func (p *proxy) Serve(r io.Reader, w io.Writer) {
 	select {
 	case <-cc:
 	case <-sc:
-		fmt.Fprintln(w, "connection closed by server")
+		fmt.Fprintln(clientw, "connection closed by server")
 	}
 }
 
