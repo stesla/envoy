@@ -37,7 +37,6 @@ func readProxies() (out map[string]*proxy) {
 		p := viper.GetStringMapString("proxies." + name)
 		out[name] = &proxy{
 			Name:      name,
-			Password:  p["password"],
 			Address:   p["address"],
 			Log:       p["log"],
 			OnConnect: p["onconnect"],
@@ -92,7 +91,7 @@ func startsession(conn net.Conn) {
 	obj, found := proxies.Load(proxyName)
 	proxy := obj.(*proxy)
 
-	if !found || words[2] != proxy.Password {
+	if !found || words[2] != viper.GetString("password") {
 		fmt.Fprintln(conn, "invalid proxy name or password")
 		conn.Close()
 		return
