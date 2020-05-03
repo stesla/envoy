@@ -31,7 +31,7 @@ func init() {
 	rootCmd.AddCommand(startCmd)
 }
 
-func ReadProxies() (out map[string]*proxy) {
+func readProxies() (out map[string]*proxy) {
 	out = make(map[string]*proxy)
 	for name, _ := range viper.GetStringMapString("proxies") {
 		p := viper.GetStringMapString("proxies." + name)
@@ -53,7 +53,7 @@ func ReadProxies() (out map[string]*proxy) {
 }
 
 func start(cmd *cobra.Command, args []string) {
-	for k, v := range ReadProxies() {
+	for k, v := range readProxies() {
 		proxies.Store(k, v)
 	}
 
@@ -108,6 +108,21 @@ func startsession(conn net.Conn) {
 	}
 }
 
+type addClientReq struct {
+	c  io.ReadWriteCloser
+	ch chan error
+}
+
+type client struct {
+	io.Reader
+	io.WriteCloser
+}
+
+type ioresult struct {
+	n   int
+	err error
+}
+
 type proxy struct {
 	Name      string
 	Password  string
@@ -119,6 +134,32 @@ type proxy struct {
 	close       chan chan error
 	write       chan writereq
 	writeClient chan writereq
+}
+
+func (p *proxy) AddClient(c io.ReadWriteCloser) error {
+	ch := make(chan error)
+	p.addClient <- addClientReq{c, ch}
+	return <-ch
+}
+
+func (p *proxy) Close() error {
+	ch := make(chan error)
+	p.close <- ch
+	return <-ch
+}
+
+func (p *proxy) Write(data []byte) (int, error) {
+	ch := make(chan ioresult)
+	p.write <- writereq{data, ch}
+	r := <-ch
+	return r.n, r.err
+}
+
+func (p *proxy) WriteClients(data []byte) (int, error) {
+	ch := make(chan ioresult)
+	p.writeClient <- writereq{data, ch}
+	r := <-ch
+	return r.n, r.err
 }
 
 func (p *proxy) connect() (conn net.Conn, log *os.File, err error) {
@@ -139,15 +180,6 @@ func (p *proxy) connect() (conn net.Conn, log *os.File, err error) {
 	}
 
 	return
-}
-
-func (p *proxy) openLog() (*os.File, error) {
-	t := time.Now()
-	filename, err := homedir.Expand(t.Format(p.Log))
-	if err != nil {
-		return nil, err
-	}
-	return os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 644)
 }
 
 func (p *proxy) loop() {
@@ -240,54 +272,18 @@ func (p *proxy) loop() {
 	}
 }
 
-type Client interface {
-	io.ReadWriteCloser
-}
-
-type addClientReq struct {
-	c  Client
-	ch chan error
-}
-
-func (p *proxy) AddClient(c Client) error {
-	ch := make(chan error)
-	p.addClient <- addClientReq{c, ch}
-	return <-ch
-}
-
-func (p *proxy) Close() error {
-	ch := make(chan error)
-	p.close <- ch
-	return <-ch
-}
-
-type writereq struct {
-	buf []byte
-	ch  chan<- ioresult
-}
-
-type ioresult struct {
-	n   int
-	err error
-}
-
-func (p *proxy) Write(data []byte) (int, error) {
-	ch := make(chan ioresult)
-	p.write <- writereq{data, ch}
-	r := <-ch
-	return r.n, r.err
-}
-
-func (p *proxy) WriteClients(data []byte) (int, error) {
-	ch := make(chan ioresult)
-	p.writeClient <- writereq{data, ch}
-	r := <-ch
-	return r.n, r.err
+func (p *proxy) openLog() (*os.File, error) {
+	t := time.Now()
+	filename, err := homedir.Expand(t.Format(p.Log))
+	if err != nil {
+		return nil, err
+	}
+	return os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 644)
 }
 
 type telnetFilter struct {
 	r io.Reader
-	s state
+	s telnetState
 }
 
 const (
@@ -299,7 +295,7 @@ const (
 )
 
 func noTelnet(r io.Reader) io.Reader {
-	return &telnetFilter{r, stateNormal}
+	return &telnetFilter{r, telnetStateNormal}
 }
 
 func (st *telnetFilter) Read(p []byte) (int, error) {
@@ -320,33 +316,33 @@ func (st *telnetFilter) Read(p []byte) (int, error) {
 	return n, nil
 }
 
-type state func(byte) (state, bool)
+type telnetState func(byte) (telnetState, bool)
 
-func stateNormal(c byte) (state, bool) {
+func telnetStateNormal(c byte) (telnetState, bool) {
 	switch c {
 	case telnetIAC:
-		return stateIAC, false
+		return telnetStateIAC, false
 	default:
-		return stateNormal, true
+		return telnetStateNormal, true
 	}
 }
 
-func stateIAC(c byte) (state, bool) {
+func telnetStateIAC(c byte) (telnetState, bool) {
 	switch c {
 	case telnetWILL, telnetWONT, telnetDO, telnetDONT:
-		return stateOption, false
+		return telnetStateOption, false
 	case telnetIAC:
-		return stateNormal, true
+		return telnetStateNormal, true
 	default:
-		return stateNormal, false
+		return telnetStateNormal, false
 	}
 }
 
-func stateOption(c byte) (state, bool) {
-	return stateNormal, false
+func telnetStateOption(c byte) (telnetState, bool) {
+	return telnetStateNormal, false
 }
 
-type client struct {
-	io.Reader
-	io.WriteCloser
+type writereq struct {
+	buf []byte
+	ch  chan<- ioresult
 }
