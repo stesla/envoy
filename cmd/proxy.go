@@ -172,6 +172,11 @@ func (p *proxy) loop() {
 			}
 			ch <- server.Close()
 			server = nil
+			readServer = nil
+			readServerDone = nil
+			writeClient = p.writeClient
+			writeServer = p.write
+			writeServerDone = nil
 
 		case req := <-p.addClient:
 			if server == nil {
@@ -204,7 +209,7 @@ func (p *proxy) loop() {
 
 		case req := <-writeServer:
 			writeServer = nil
-			writeServerDone = make(chan struct{}, 1)
+			writeServerDone = make(chan struct{})
 			go func() {
 				nw, ew := server.Write(req.buf)
 				req.ch <- ioresult{nw, ew}
@@ -217,7 +222,7 @@ func (p *proxy) loop() {
 
 		case <-readServer:
 			readServer = nil
-			readServerDone = make(chan struct{}, 1)
+			readServerDone = make(chan struct{})
 			go func() {
 				buf := make([]byte, 1024)
 				nr, er := server.Read(buf)
