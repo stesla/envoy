@@ -44,7 +44,7 @@ func readProxies() (out map[string]*proxy) {
 
 			addClient:   make(chan addClientReq),
 			close:       make(chan chan error),
-			write:       make(chan writereq),
+			writeServer: make(chan writereq),
 			writeClient: make(chan writereq),
 		}
 		go out[name].loop()
@@ -132,7 +132,7 @@ type proxy struct {
 
 	addClient   chan addClientReq
 	close       chan chan error
-	write       chan writereq
+	writeServer chan writereq
 	writeClient chan writereq
 }
 
@@ -142,24 +142,18 @@ func (p *proxy) AddClient(c io.ReadWriteCloser) error {
 	return <-ch
 }
 
+func (p *proxy) ClientWriter() io.Writer {
+	return &writereqWriter{p.writeClient}
+}
+
 func (p *proxy) Close() error {
 	ch := make(chan error)
 	p.close <- ch
 	return <-ch
 }
 
-func (p *proxy) Write(data []byte) (int, error) {
-	ch := make(chan ioresult)
-	p.write <- writereq{data, ch}
-	r := <-ch
-	return r.n, r.err
-}
-
-func (p *proxy) WriteClients(data []byte) (int, error) {
-	ch := make(chan ioresult)
-	p.writeClient <- writereq{data, ch}
-	r := <-ch
-	return r.n, r.err
+func (p *proxy) ServerWriter() io.Writer {
+	return &writereqWriter{p.writeServer}
 }
 
 func (p *proxy) connect() (conn net.Conn, log *os.File, err error) {
@@ -188,7 +182,7 @@ func (p *proxy) loop() {
 	var readServer chan struct{}
 	var readServerDone chan struct{}
 	var writeClient = p.writeClient
-	var writeServer = p.write
+	var writeServer = p.writeServer
 	var writeServerDone chan struct{}
 	for {
 		if readServerDone == nil && len(clients) > 0 {
@@ -207,7 +201,7 @@ func (p *proxy) loop() {
 			readServer = nil
 			readServerDone = nil
 			writeClient = p.writeClient
-			writeServer = p.write
+			writeServer = p.writeServer
 			writeServerDone = nil
 
 		case req := <-p.addClient:
@@ -227,7 +221,7 @@ func (p *proxy) loop() {
 			}
 			close(req.ch)
 			clients[req.c] = struct{}{}
-			go io.Copy(p, req.c)
+			go io.Copy(p.ServerWriter(), req.c)
 
 		case req := <-writeClient:
 			for c, _ := range clients {
@@ -250,7 +244,7 @@ func (p *proxy) loop() {
 
 		case <-writeServerDone:
 			writeServerDone = nil
-			writeServer = p.write
+			writeServer = p.writeServer
 
 		case <-readServer:
 			readServer = nil
@@ -258,7 +252,7 @@ func (p *proxy) loop() {
 			go func() {
 				buf := make([]byte, 1024)
 				nr, er := server.Read(buf)
-				p.WriteClients(buf[:nr])
+				p.ClientWriter().Write(buf[:nr])
 				if er != nil {
 					p.Close()
 					return
@@ -345,4 +339,15 @@ func telnetStateOption(c byte) (telnetState, bool) {
 type writereq struct {
 	buf []byte
 	ch  chan<- ioresult
+}
+
+type writereqWriter struct {
+	ch chan<- writereq
+}
+
+func (w *writereqWriter) Write(data []byte) (int, error) {
+	ch := make(chan ioresult)
+	w.ch <- writereq{data, ch}
+	r := <-ch
+	return r.n, r.err
 }
