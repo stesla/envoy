@@ -134,6 +134,10 @@ func (p *proxy) connect() (conn net.Conn, log *os.File, err error) {
 		}
 	}
 
+	if p.OnConnect != "" {
+		_, err = fmt.Fprintln(conn, p.OnConnect)
+	}
+
 	return
 }
 
