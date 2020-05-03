@@ -6,9 +6,12 @@ import (
 	"io"
 	"log"
 	"net"
+	"os"
 	"strings"
 	"sync"
+	"time"
 
+	homedir "github.com/mitchellh/go-homedir"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -39,9 +42,10 @@ func ReadProxies() (out map[string]*proxy) {
 			Log:       p["log"],
 			OnConnect: p["onconnect"],
 
-			addClient: make(chan addClientReq),
-			close:     make(chan chan error),
-			write:     make(chan writeReq),
+			addClient:   make(chan addClientReq),
+			close:       make(chan chan error),
+			write:       make(chan writereq),
+			writeClient: make(chan writereq),
 		}
 		go out[name].loop()
 	}
@@ -111,28 +115,47 @@ type proxy struct {
 	Log       string
 	OnConnect string
 
-	addClient chan addClientReq
-	close     chan chan error
-	write     chan writeReq
+	addClient   chan addClientReq
+	close       chan chan error
+	write       chan writereq
+	writeClient chan writereq
 }
 
-func (p *proxy) connect() (conn net.Conn, err error) {
+func (p *proxy) connect() (conn net.Conn, log *os.File, err error) {
 	conn, err = net.Dial("tcp", p.Address)
+	if err != nil {
+		return
+	}
+
+	if p.Log != "" {
+		log, err = p.openLog()
+		if err != nil {
+			return
+		}
+	}
+
 	return
+}
+
+func (p *proxy) openLog() (*os.File, error) {
+	t := time.Now()
+	filename, err := homedir.Expand(t.Format(p.Log))
+	if err != nil {
+		return nil, err
+	}
+	return os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 644)
 }
 
 func (p *proxy) loop() {
 	var clients = make(map[Client]struct{})
 	var server net.Conn
 	var readServer chan struct{}
-	var readDone chan struct{}
-	var writeClient = make(chan []byte)
+	var readServerDone chan struct{}
+	var writeClient = p.writeClient
 	var writeServer = p.write
-	var writeDone chan struct{}
+	var writeServerDone chan struct{}
 	for {
-		var err error
-
-		if readDone == nil && len(clients) > 0 {
+		if readServerDone == nil && len(clients) > 0 {
 			readServer = make(chan struct{}, 1)
 			readServer <- struct{}{}
 		}
@@ -148,56 +171,57 @@ func (p *proxy) loop() {
 
 		case req := <-p.addClient:
 			if server == nil {
-				server, err = p.connect()
+				conn, log, err := p.connect()
 				if err != nil {
 					req.ch <- err
-					server = nil
 					break
 				}
+				server = conn
+				clients[log] = struct{}{}
 			}
 			close(req.ch)
 			clients[req.c] = struct{}{}
 			go io.Copy(p, req.c)
 
-		case buf := <-writeClient:
+		case req := <-writeClient:
 			for c, _ := range clients {
-				nw, ew := c.Write(buf)
-				if ew != nil || nw != len(buf) {
+				nw, ew := c.Write(req.buf)
+				if ew != nil || nw != len(req.buf) {
 					delete(clients, c)
 					c.Close()
 				}
 			}
+			req.ch <- ioresult{len(req.buf), nil}
 
 		case req := <-writeServer:
 			writeServer = nil
-			writeDone = make(chan struct{}, 1)
+			writeServerDone = make(chan struct{}, 1)
 			go func() {
 				nw, ew := server.Write(req.buf)
 				req.ch <- ioresult{nw, ew}
-				writeDone <- struct{}{}
+				writeServerDone <- struct{}{}
 			}()
 
-		case <-writeDone:
-			writeDone = nil
+		case <-writeServerDone:
+			writeServerDone = nil
 			writeServer = p.write
 
 		case <-readServer:
 			readServer = nil
-			readDone = make(chan struct{}, 1)
+			readServerDone = make(chan struct{}, 1)
 			go func() {
 				buf := make([]byte, 1024)
 				nr, er := server.Read(buf)
+				p.WriteClients(buf[:nr])
 				if er != nil {
-					// TODO: notify clients server d/c'd
 					p.Close()
 					return
 				}
-				writeClient <- buf[:nr]
-				readDone <- struct{}{}
+				readServerDone <- struct{}{}
 			}()
 
-		case <-readDone:
-			readDone = nil
+		case <-readServerDone:
+			readServerDone = nil
 		}
 	}
 }
@@ -223,7 +247,7 @@ func (p *proxy) Close() error {
 	return <-ch
 }
 
-type writeReq struct {
+type writereq struct {
 	buf []byte
 	ch  chan<- ioresult
 }
@@ -235,7 +259,14 @@ type ioresult struct {
 
 func (p *proxy) Write(data []byte) (int, error) {
 	ch := make(chan ioresult)
-	p.write <- writeReq{data, ch}
+	p.write <- writereq{data, ch}
+	r := <-ch
+	return r.n, r.err
+}
+
+func (p *proxy) WriteClients(data []byte) (int, error) {
+	ch := make(chan ioresult)
+	p.writeClient <- writereq{data, ch}
 	r := <-ch
 	return r.n, r.err
 }
