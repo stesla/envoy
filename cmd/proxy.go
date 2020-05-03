@@ -151,7 +151,7 @@ func (p *proxy) openLog() (*os.File, error) {
 }
 
 func (p *proxy) loop() {
-	var clients = make(map[Client]struct{})
+	var clients = make(map[io.WriteCloser]struct{})
 	var server net.Conn
 	var readServer chan struct{}
 	var readServerDone chan struct{}
@@ -181,7 +181,12 @@ func (p *proxy) loop() {
 					break
 				}
 				server = conn
-				clients[log] = struct{}{}
+				logr, logw := io.Pipe()
+				clients[logw] = struct{}{}
+				go func() {
+					io.Copy(log, noTelnet(logr))
+					log.Close()
+				}()
 			}
 			close(req.ch)
 			clients[req.c] = struct{}{}
@@ -275,7 +280,7 @@ func (p *proxy) WriteClients(data []byte) (int, error) {
 	return r.n, r.err
 }
 
-type stripTelnet struct {
+type telnetFilter struct {
 	r io.Reader
 	s state
 }
@@ -288,7 +293,11 @@ const (
 	telnetIAC
 )
 
-func (st *stripTelnet) Read(p []byte) (int, error) {
+func noTelnet(r io.Reader) io.Reader {
+	return &telnetFilter{r, stateNormal}
+}
+
+func (st *telnetFilter) Read(p []byte) (int, error) {
 	q := make([]byte, len(p))
 	nr, er := st.r.Read(q)
 	if er != nil {
