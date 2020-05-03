@@ -1,0 +1,8 @@
+#!/bin/bash
+
+if [ `pgrep envoy | wc -l` -gt 0 ]; then
+    echo "The envoy proxy already seems to be running."
+    exit 0
+fi
+
+(nohup $HOME/bin/envoy start >/dev/null 2>&1 &)
