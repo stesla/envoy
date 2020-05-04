@@ -17,7 +17,6 @@ import (
 )
 
 var (
-	proxies  = &sync.Map{}
 	startCmd = &cobra.Command{
 		Use:   "start",
 		Short: "start proxy server",
@@ -31,31 +30,7 @@ func init() {
 	rootCmd.AddCommand(startCmd)
 }
 
-func readProxies() (out map[string]*proxy) {
-	out = make(map[string]*proxy)
-	for name, _ := range viper.GetStringMapString("proxies") {
-		p := viper.GetStringMapString("proxies." + name)
-		out[name] = &proxy{
-			Name:      name,
-			Address:   p["address"],
-			Log:       p["log"],
-			OnConnect: p["onconnect"],
-
-			addClient:   make(chan addClientReq),
-			close:       make(chan chan error),
-			writeServer: make(chan writereq),
-			writeClient: make(chan writereq),
-		}
-		go out[name].loop()
-	}
-	return
-}
-
 func start(cmd *cobra.Command, args []string) {
-	for k, v := range readProxies() {
-		proxies.Store(k, v)
-	}
-
 	addr := viper.GetString("listen")
 	log.Printf("listening on '%s'", addr)
 
@@ -88,8 +63,7 @@ func startsession(conn net.Conn) {
 		return
 	}
 	proxyName := strings.ToLower(words[1])
-	obj, found := proxies.Load(proxyName)
-	proxy := obj.(*proxy)
+	proxy, found := findProxyByName(proxyName)
 
 	if !found || words[2] != viper.GetString("password") {
 		fmt.Fprintln(conn, "invalid proxy name or password")
@@ -176,6 +150,8 @@ func (p *proxy) connect() (conn net.Conn, log *os.File, err error) {
 }
 
 func (p *proxy) loop() {
+	defer proxies.Delete(p.Name)
+
 	var clients = make(map[io.WriteCloser]struct{})
 	var server net.Conn
 	var readServer chan struct{}
@@ -196,12 +172,7 @@ func (p *proxy) loop() {
 				c.Close()
 			}
 			ch <- server.Close()
-			server = nil
-			readServer = nil
-			readServerDone = nil
-			writeClient = p.writeClient
-			writeServer = p.writeServer
-			writeServerDone = nil
+			return
 
 		case req := <-p.addClient:
 			if server == nil {
@@ -272,6 +243,36 @@ func (p *proxy) openLog() (*os.File, error) {
 		return nil, err
 	}
 	return os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 644)
+}
+
+var proxies = &sync.Map{}
+
+func findProxyByName(name string) (*proxy, bool) {
+	obj, found := proxies.Load(name)
+	if found {
+		p, ok := obj.(*proxy)
+		return p, ok
+	}
+
+	h := viper.GetStringMapString("proxies." + name)
+	if len(h) == 0 {
+		return nil, false
+	}
+
+	p := &proxy{
+		Name:      name,
+		Address:   h["address"],
+		Log:       h["log"],
+		OnConnect: h["onconnect"],
+
+		addClient:   make(chan addClientReq),
+		close:       make(chan chan error),
+		writeServer: make(chan writereq),
+		writeClient: make(chan writereq),
+	}
+	go p.loop()
+	proxies.Store(name, p)
+	return p, true
 }
 
 type telnetFilter struct {
