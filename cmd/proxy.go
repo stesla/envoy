@@ -176,18 +176,20 @@ func (p *proxy) loop() {
 
 		case req := <-p.addClient:
 			if server == nil {
-				conn, log, err := p.connect()
+				conn, logfile, err := p.connect()
 				if err != nil {
 					req.ch <- err
 					break
 				}
 				server = conn
-				logr, logw := io.Pipe()
-				clients[logw] = struct{}{}
-				go func() {
-					io.Copy(log, noTelnet(logr))
-					log.Close()
-				}()
+				if logfile != nil {
+					logr, logw := io.Pipe()
+					clients[logw] = struct{}{}
+					go func() {
+						defer logfile.Close()
+						io.Copy(logfile, noTelnet(logr))
+					}()
+				}
 			}
 			close(req.ch)
 			clients[req.c] = struct{}{}
