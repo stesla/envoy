@@ -50,9 +50,11 @@ func initConfig() {
 	viper.WatchConfig()
 
 	if addr := viper.GetString("debugaddr"); addr != "" {
-		go func() {
-			log.Printf("pprof listening on '%s'", addr)
-			log.Println(http.ListenAndServe(addr, nil))
-		}()
+		go launchProfiler(addr)
 	}
+}
+
+func launchProfiler(addr string) {
+	log.Printf("pprof listening on '%s'", addr)
+	log.Println(http.ListenAndServe(addr, nil))
 }
