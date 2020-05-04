@@ -47,6 +47,8 @@ func initConfig() {
 		log.Printf("loaded config at '%s'", viper.ConfigFileUsed())
 	}
 
+	viper.WatchConfig()
+
 	if addr := viper.GetString("debugaddr"); addr != "" {
 		go func() {
 			log.Printf("pprof listening on '%s'", addr)
