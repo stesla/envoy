@@ -161,7 +161,14 @@ func (p *proxy) connect() (conn net.Conn, log *os.File, err error) {
 func (p *proxy) loop() {
 	defer proxies.Delete(p.Name)
 
-	var clients = make(map[io.WriteCloser]struct{})
+	var clients = make(map[io.Writer]struct{})
+	deleteClient := func(w io.Writer) {
+		delete(clients, w)
+		if c, ok := w.(io.Closer); ok {
+			c.Close()
+		}
+	}
+
 	var server net.Conn
 	var readServer chan struct{}
 	var readServerDone chan struct{}
@@ -177,8 +184,7 @@ func (p *proxy) loop() {
 		select {
 		case ch := <-p.close:
 			for c, _ := range clients {
-				delete(clients, c)
-				c.Close()
+				deleteClient(c)
 			}
 			ch <- server.Close()
 			return
@@ -208,8 +214,7 @@ func (p *proxy) loop() {
 			for c, _ := range clients {
 				nw, ew := c.Write(req.buf)
 				if ew != nil || nw != len(req.buf) {
-					delete(clients, c)
-					c.Close()
+					deleteClient(c)
 				}
 			}
 			req.ch <- ioresult{len(req.buf), nil}
