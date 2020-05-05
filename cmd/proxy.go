@@ -49,7 +49,16 @@ func start(cmd *cobra.Command, args []string) {
 	}
 }
 
+const motd = `
+Welcome to Envoy
+------------------------------------------------------------------------
+  "connect <name> <password>" connects you to an existing world.
+------------------------------------------------------------------------
+`
+
 func startsession(conn net.Conn) {
+	fmt.Fprintln(conn, motd)
+
 	r := bufio.NewReader(conn)
 
 	line, err := r.ReadString('\n')
