@@ -169,6 +169,9 @@ func (p *proxy) loop() {
 		}
 	}
 
+	var history = newHistory()
+	clients[history] = struct{}{}
+
 	var server net.Conn
 	var readServer chan struct{}
 	var readServerDone chan struct{}
@@ -176,7 +179,7 @@ func (p *proxy) loop() {
 	var writeServer = p.writeServer
 	var writeServerDone chan struct{}
 	for {
-		if readServerDone == nil && len(clients) > 0 {
+		if server != nil && readServerDone == nil {
 			readServer = make(chan struct{}, 1)
 			readServer <- struct{}{}
 		}
@@ -208,6 +211,7 @@ func (p *proxy) loop() {
 			}
 			close(req.ch)
 			clients[req.c] = struct{}{}
+			history.WriteTo(req.c)
 			go io.Copy(p.ServerWriter(), req.c)
 
 		case req := <-writeClient:
@@ -289,6 +293,24 @@ func findProxyByName(name string) (*proxy, bool) {
 	go p.loop()
 	proxies.Store(name, p)
 	return p, true
+}
+
+type history struct {
+	buf []byte
+}
+
+func newHistory() *history {
+	return &history{make([]byte, 0, 2*1024*1024)}
+}
+
+func (h *history) Write(p []byte) (int, error) {
+	h.buf = append(h.buf, p...)
+	return len(p), nil
+}
+
+func (h *history) WriteTo(w io.Writer) (int64, error) {
+	n, err := w.Write(h.buf)
+	return int64(n), err
 }
 
 type telnetFilter struct {
