@@ -262,7 +262,7 @@ func (p *proxy) openLog() (*os.File, error) {
 	if err != nil {
 		return nil, err
 	}
-	return os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 644)
+	return os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 }
 
 var proxies = &sync.Map{}
