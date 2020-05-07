@@ -1,6 +1,7 @@
 package telnet
 
 import (
+	"fmt"
 	"io"
 	"net"
 )
@@ -61,10 +62,44 @@ func (c *client) Close() error {
 	return nil
 }
 
-func (c *client) Read(buf []byte) (int, error) {
-	return c.r.Read(buf)
+func (c *client) Read(out []byte) (int, error) {
+	in := make([]byte, len(out))
+	nr, er := c.r.Read(in)
+	if nr == 0 {
+		return nr, er
+	}
+	str := string(in[:nr])
+	n := 0
+	for _, c := range str {
+		if c < 128 {
+			out[n] = byte(c)
+		} else {
+			out[n] = '?'
+		}
+		n++
+	}
+	return n, er
 }
 
-func (c *client) Write(buf []byte) (int, error) {
-	return c.w.Write(buf)
+func (c *client) Write(in []byte) (n int, err error) {
+	out := make([]byte, len(in))
+	for _, b := range in {
+		if b > 127 {
+			err = invalidCodepointError(b)
+			break
+		}
+		out[n] = b
+		n++
+	}
+	nw, ew := c.w.Write(out[:n])
+	if ew != nil {
+		return nw, ew
+	}
+	return nw, err
+}
+
+type invalidCodepointError byte
+
+func (c invalidCodepointError) Error() string {
+	return fmt.Sprintf("invalid codepoint for current encoding: %c", c)
 }
