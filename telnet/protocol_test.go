@@ -1,4 +1,4 @@
-package gotelnet
+package telnet
 
 import (
 	"bytes"
