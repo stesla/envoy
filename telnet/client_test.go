@@ -6,6 +6,10 @@ import (
 	"testing"
 )
 
+/*
+ * Read
+ */
+
 func TestClientReadAscii(t *testing.T) {
 	var expected = []byte("abc123")
 	var r = bytes.NewReader(expected)
@@ -32,6 +36,24 @@ func TestClientReadNonAscii(t *testing.T) {
 	assert.Equal(t, expected, buf[:nr])
 }
 
+func TestClientReadUTF8(t *testing.T) {
+	var expected = []byte("a»b")
+	var r = bytes.NewReader(expected)
+	c := NewClient(r, nil)
+	c.SetEncoding(EncodingUTF8)
+
+	var buf = make([]byte, 2*r.Len())
+	nr, er := c.Read(buf)
+
+	assert.NoError(t, er)
+	assert.Equal(t, len(expected), nr)
+	assert.Equal(t, expected, buf[:nr])
+}
+
+/*
+ * Write()
+ */
+
 func TestClientWriteAscii(t *testing.T) {
 	var w bytes.Buffer
 	c := NewClient(nil, &w)
@@ -53,5 +75,18 @@ func TestClientWriteNonAscii(t *testing.T) {
 	if assert.Error(t, ew) {
 		assert.Equal(t, 3, nw)
 		assert.Equal(t, "abc", w.String())
+	}
+}
+
+func TestClientWriteUTF8(t *testing.T) {
+	var w bytes.Buffer
+	c := NewClient(nil, &w)
+	c.SetEncoding(EncodingUTF8)
+
+	var expected = []byte("abc»123")
+	nw, ew := c.Write(expected)
+	if assert.NoError(t, ew) {
+		assert.Equal(t, len(expected), nw)
+		assert.Equal(t, expected, w.Bytes())
 	}
 }
