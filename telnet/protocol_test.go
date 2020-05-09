@@ -12,8 +12,8 @@ func processBytes(t *testing.T, b []byte) (r, w []byte) {
 
 func processBytesWithOptions(t *testing.T, b []byte, opts map[byte]*option) (r, w []byte) {
 	in := bytes.NewBuffer(b)
-	out := &bytes.Buffer{}
-	protocol := newTelnetProtocol(in, out)
+	var out bytes.Buffer
+	protocol := newTelnetProtocol(in, &out)
 	if opts != nil {
 		protocol.options = opts
 	}
@@ -26,14 +26,11 @@ func processBytesWithOptions(t *testing.T, b []byte, opts map[byte]*option) (r, 
 		t.Logf("Read %d bytes %q", n, r)
 	}
 	w = out.Bytes()
+	if w == nil {
+		w = []byte{}
+	}
 	t.Logf("Wrote %d bytes %q", len(w), w)
 	return
-}
-
-func assertEqual(t *testing.T, a, b []byte) {
-	if !bytes.Equal(a, b) {
-		t.Fatalf("Expected %q to be %q", a, b)
-	}
 }
 
 /***
@@ -42,20 +39,20 @@ func assertEqual(t *testing.T, a, b []byte) {
 
 func TestAsciiText(t *testing.T) {
 	r, w := processBytes(t, []byte("hello"))
-	assertEqual(t, r, []byte("hello"))
-	assertEqual(t, w, []byte{})
+	assert.Equal(t, []byte("hello"), r)
+	assert.Equal(t, []byte{}, w)
 }
 
 func TestStripTelnetCommands(t *testing.T) {
 	r, w := processBytes(t, []byte{'h', InterpretAsCommand, NoOperation, 'i'})
-	assertEqual(t, r, []byte("hi"))
-	assertEqual(t, w, []byte{})
+	assert.Equal(t, []byte("hi"), r)
+	assert.Equal(t, []byte{}, w)
 }
 
 func TestEscapedIAC(t *testing.T) {
 	r, w := processBytes(t, []byte{'h', InterpretAsCommand, InterpretAsCommand, 'i'})
-	assertEqual(t, r, []byte("h\xffi"))
-	assertEqual(t, w, []byte{})
+	assert.Equal(t, []byte("h\xffi"), r)
+	assert.Equal(t, []byte{}, w)
 }
 
 func TestSplitCommand(t *testing.T) {
@@ -65,10 +62,10 @@ func TestSplitCommand(t *testing.T) {
 	r := make([]byte, 2)
 	in.Write([]byte{'h', InterpretAsCommand})
 	n, _ := protocol.Read(r)
-	assertEqual(t, r[:n], []byte("h"))
+	assert.Equal(t, []byte("h"), r[:n])
 	in.Write([]byte{NoOperation, 'i'})
 	n, _ = protocol.Read(r)
-	assertEqual(t, r[:n], []byte("i"))
+	assert.Equal(t, []byte("i"), r[:n])
 }
 
 type Error string
@@ -95,7 +92,7 @@ func TestErrorReading(t *testing.T) {
 	if err.Error() != "boom" {
 		t.Fatalf("expected \"boom\", got %q", err)
 	}
-	assertEqual(t, buf[:n], []byte("AB"))
+	assert.Equal(t, []byte("AB"), buf[:n])
 }
 
 /***
@@ -113,7 +110,7 @@ func TestWriteAscii(t *testing.T) {
 	if n != len(expected) {
 		t.Fatalf("Expected to write %d but wrote %d", len(expected), n)
 	}
-	assertEqual(t, out.Bytes(), expected)
+	assert.Equal(t, expected, out.Bytes())
 }
 
 func TestWriteIAC(t *testing.T) {
@@ -127,7 +124,7 @@ func TestWriteIAC(t *testing.T) {
 		t.Fatalf("Expected to write 3 but wrote %d", n)
 	}
 	expected := []byte{'h', InterpretAsCommand, InterpretAsCommand, 'i'}
-	assertEqual(t, out.Bytes(), expected)
+	assert.Equal(t, expected, out.Bytes())
 }
 
 /***
@@ -162,8 +159,8 @@ func TestDoNotSupportEcho(t *testing.T) {
 		}
 		opts := map[byte]*option{Echo: o}
 		r, w := processBytesWithOptions(t, []byte{'h', InterpretAsCommand, test.command, Echo, 'i'}, opts)
-		assertEqual(t, r, []byte("hi"))
-		assertEqual(t, w, []byte{InterpretAsCommand, test.response, Echo})
+		assert.Equal(t, []byte("hi"), r)
+		assert.Equal(t, []byte{InterpretAsCommand, test.response, Echo}, w)
 	}
 }
 
