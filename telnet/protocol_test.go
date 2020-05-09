@@ -8,7 +8,7 @@ import (
 func processBytes(t *testing.T, b []byte) (r, w []byte) {
 	in := bytes.NewBuffer(b)
 	out := &bytes.Buffer{}
-	protocol := makeTelnetProtocol(in, out)
+	protocol := newTelnetProtocol(in, out)
 
 	r = make([]byte, len(b)) // At most we'll read all the bytes
 	if n, err := protocol.Read(r); err != nil {
@@ -48,7 +48,7 @@ func TestEscapedIAC(t *testing.T) {
 
 func TestSplitCommand(t *testing.T) {
 	var in, out bytes.Buffer
-	protocol := makeTelnetProtocol(&in, &out)
+	protocol := newTelnetProtocol(&in, &out)
 
 	r := make([]byte, 2)
 	in.Write([]byte{'h', InterpretAsCommand})
@@ -88,7 +88,7 @@ func (r boomReader) Read(b []byte) (n int, err error) {
 
 func TestErrorReading(t *testing.T) {
 	var out bytes.Buffer
-	protocol := makeTelnetProtocol(boomReader(2), &out)
+	protocol := newTelnetProtocol(boomReader(2), &out)
 	buf := make([]byte, 16)
 	n, err := protocol.Read(buf)
 	if err == nil {
@@ -102,7 +102,7 @@ func TestErrorReading(t *testing.T) {
 
 func TestWriteAscii(t *testing.T) {
 	var in, out bytes.Buffer
-	protocol := makeTelnetProtocol(&in, &out)
+	protocol := newTelnetProtocol(&in, &out)
 	expected := []byte("hello")
 	n, err := protocol.Write(expected)
 	if err != nil {
@@ -116,7 +116,7 @@ func TestWriteAscii(t *testing.T) {
 
 func TestWriteIAC(t *testing.T) {
 	var in, out bytes.Buffer
-	protocol := makeTelnetProtocol(&in, &out)
+	protocol := newTelnetProtocol(&in, &out)
 	n, err := protocol.Write([]byte{'h', InterpretAsCommand, 'i'})
 	if err != nil {
 		t.Fatalf("Error Writing: %q", err)

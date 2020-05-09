@@ -55,7 +55,7 @@ type client struct {
 }
 
 func NewClient(r io.Reader, w io.Writer) Client {
-	c := &client{p: makeTelnetProtocol(r, w)}
+	c := &client{p: newTelnetProtocol(r, w)}
 	c.SetEncoding(EncodingAscii)
 	return c
 }
