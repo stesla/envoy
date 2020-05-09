@@ -2,15 +2,17 @@ package telnet
 
 import (
 	"bytes"
-	"github.com/stretchr/testify/assert"
+	"fmt"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
-func processBytes(t *testing.T, b []byte) (r, w []byte) {
-	return processBytesWithOptions(t, b, nil)
+func processBytes(b []byte) (r, w []byte, _ error) {
+	return processBytesWithOptions(b, nil)
 }
 
-func processBytesWithOptions(t *testing.T, b []byte, opts map[byte]*option) (r, w []byte) {
+func processBytesWithOptions(b []byte, opts map[byte]*option) (r, w []byte, err error) {
 	in := bytes.NewBuffer(b)
 	var out bytes.Buffer
 	protocol := newTelnetProtocol(in, &out)
@@ -19,17 +21,15 @@ func processBytesWithOptions(t *testing.T, b []byte, opts map[byte]*option) (r, 
 	}
 
 	r = make([]byte, len(b)) // At most we'll read all the bytes
-	if n, err := protocol.Read(r); err != nil {
-		t.Fatalf("Read error %q", err)
-	} else {
-		r = r[0:n] // Truncate to the length actually read
-		t.Logf("Read %d bytes %q", n, r)
+	nr, er := protocol.Read(r)
+	if er != nil {
+		err = fmt.Errorf("Read: %q", er)
 	}
+	r = r[0:nr] // Truncate to the length actually read
 	w = out.Bytes()
 	if w == nil {
 		w = []byte{}
 	}
-	t.Logf("Wrote %d bytes %q", len(w), w)
 	return
 }
 
@@ -38,19 +38,22 @@ func processBytesWithOptions(t *testing.T, b []byte, opts map[byte]*option) (r, 
 ***/
 
 func TestAsciiText(t *testing.T) {
-	r, w := processBytes(t, []byte("hello"))
+	r, w, err := processBytes([]byte("hello"))
+	assert.NoError(t, err)
 	assert.Equal(t, []byte("hello"), r)
 	assert.Equal(t, []byte{}, w)
 }
 
 func TestStripTelnetCommands(t *testing.T) {
-	r, w := processBytes(t, []byte{'h', InterpretAsCommand, NoOperation, 'i'})
+	r, w, err := processBytes([]byte{'h', InterpretAsCommand, NoOperation, 'i'})
+	assert.NoError(t, err)
 	assert.Equal(t, []byte("hi"), r)
 	assert.Equal(t, []byte{}, w)
 }
 
 func TestEscapedIAC(t *testing.T) {
-	r, w := processBytes(t, []byte{'h', InterpretAsCommand, InterpretAsCommand, 'i'})
+	r, w, err := processBytes([]byte{'h', InterpretAsCommand, InterpretAsCommand, 'i'})
+	assert.NoError(t, err)
 	assert.Equal(t, []byte("h\xffi"), r)
 	assert.Equal(t, []byte{}, w)
 }
@@ -158,7 +161,8 @@ func TestDoNotSupportEcho(t *testing.T) {
 			o.them = telnetQYes
 		}
 		opts := map[byte]*option{Echo: o}
-		r, w := processBytesWithOptions(t, []byte{'h', InterpretAsCommand, test.command, Echo, 'i'}, opts)
+		r, w, err := processBytesWithOptions([]byte{'h', InterpretAsCommand, test.command, Echo, 'i'}, opts)
+		assert.NoError(t, err)
 		assert.Equal(t, []byte("hi"), r)
 		assert.Equal(t, []byte{InterpretAsCommand, test.response, Echo}, w)
 	}
