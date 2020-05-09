@@ -61,9 +61,9 @@ func TestSplitCommand(t *testing.T) {
 
 func testOption(t *testing.T, command, response byte, message string) {
 	t.Logf("testOption %s", message)
-	r, w := processBytes(t, []byte{'h', InterpretAsCommand, command, 0, 'i'})
+	r, w := processBytes(t, []byte{'h', InterpretAsCommand, command, TransmitBinary, 'i'})
 	assertEqual(t, r, []byte("hi"))
-	assertEqual(t, w, []byte{InterpretAsCommand, response, 0})
+	assertEqual(t, w, []byte{InterpretAsCommand, response, TransmitBinary})
 }
 
 func TestNaiveOptionNegotiation(t *testing.T) {
