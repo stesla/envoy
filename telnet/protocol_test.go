@@ -2,13 +2,21 @@ package telnet
 
 import (
 	"bytes"
+	"github.com/stretchr/testify/assert"
 	"testing"
 )
 
 func processBytes(t *testing.T, b []byte) (r, w []byte) {
+	return processBytesWithOptions(t, b, nil)
+}
+
+func processBytesWithOptions(t *testing.T, b []byte, opts map[byte]*option) (r, w []byte) {
 	in := bytes.NewBuffer(b)
 	out := &bytes.Buffer{}
 	protocol := newTelnetProtocol(in, out)
+	if opts != nil {
+		protocol.options = opts
+	}
 
 	r = make([]byte, len(b)) // At most we'll read all the bytes
 	if n, err := protocol.Read(r); err != nil {
@@ -27,6 +35,10 @@ func assertEqual(t *testing.T, a, b []byte) {
 		t.Fatalf("Expected %q to be %q", a, b)
 	}
 }
+
+/***
+** Read
+***/
 
 func TestAsciiText(t *testing.T) {
 	r, w := processBytes(t, []byte("hello"))
@@ -59,20 +71,6 @@ func TestSplitCommand(t *testing.T) {
 	assertEqual(t, r[:n], []byte("i"))
 }
 
-func testOption(t *testing.T, command, response byte, message string) {
-	t.Logf("testOption %s", message)
-	r, w := processBytes(t, []byte{'h', InterpretAsCommand, command, TransmitBinary, 'i'})
-	assertEqual(t, r, []byte("hi"))
-	assertEqual(t, w, []byte{InterpretAsCommand, response, TransmitBinary})
-}
-
-func TestNaiveOptionNegotiation(t *testing.T) {
-	testOption(t, Do, Wont, "Do")
-	testOption(t, Dont, Wont, "Dont")
-	testOption(t, Will, Dont, "Will")
-	testOption(t, Wont, Dont, "Wont")
-}
-
 type Error string
 
 func (e Error) Error() string { return string(e) }
@@ -100,6 +98,10 @@ func TestErrorReading(t *testing.T) {
 	assertEqual(t, buf[:n], []byte("AB"))
 }
 
+/***
+** Write
+***/
+
 func TestWriteAscii(t *testing.T) {
 	var in, out bytes.Buffer
 	protocol := newTelnetProtocol(&in, &out)
@@ -126,4 +128,116 @@ func TestWriteIAC(t *testing.T) {
 	}
 	expected := []byte{'h', InterpretAsCommand, InterpretAsCommand, 'i'}
 	assertEqual(t, out.Bytes(), expected)
+}
+
+/***
+** Option Negotiation
+***/
+
+func testOption(t *testing.T, command, response byte, message string, opts map[byte]*option) {
+	t.Logf("testOption %s", message)
+	r, w := processBytesWithOptions(t, []byte{'h', InterpretAsCommand, command, TransmitBinary, 'i'}, opts)
+	assertEqual(t, r, []byte("hi"))
+	assertEqual(t, w, []byte{InterpretAsCommand, response, TransmitBinary})
+}
+
+func TestNaiveOptionNegotiation(t *testing.T) {
+	testOption(t, Do, Wont, "Do", nil)
+	testOption(t, Will, Dont, "Will", nil)
+
+	opts := map[byte]*option{
+		TransmitBinary: &option{us: telnetQYes, them: telnetQYes},
+	}
+	testOption(t, Dont, Wont, "Dont", opts)
+	testOption(t, Wont, Dont, "Wont", opts)
+}
+
+type qMethodTest struct {
+	start, end telnetQState
+	permitted  bool
+	expected   byte
+	actual     []byte
+}
+
+func (q *qMethodTest) sendCommand(actual ...byte) error {
+	q.actual = actual
+	return nil
+}
+
+func TestQMethodReceiveDo(t *testing.T) {
+	tests := []*qMethodTest{
+		&qMethodTest{start: telnetQNo, permitted: false, end: telnetQNo, expected: Wont},
+		&qMethodTest{start: telnetQNo, permitted: true, end: telnetQYes, expected: Will},
+		&qMethodTest{start: telnetQYes, end: telnetQYes},
+		&qMethodTest{start: telnetQWantNoEmpty, end: telnetQNo},
+		&qMethodTest{start: telnetQWantNoOpposite, end: telnetQYes},
+		&qMethodTest{start: telnetQWantYesEmpty, end: telnetQYes},
+		&qMethodTest{start: telnetQWantYesOpposite, end: telnetQWantNoEmpty, expected: Wont},
+	}
+	for _, q := range tests {
+		o := &option{code: SuppressGoAhead, us: q.start, allowUs: q.permitted}
+		o.receive(q, Do)
+		assert.Equalf(t, q.end, o.us, "expected %s got %s", q.end, o.us)
+		if q.expected != 0 {
+			assert.Equal(t, []byte{q.expected, SuppressGoAhead}, q.actual)
+		}
+	}
+}
+
+func TestQMethodReceiveDont(t *testing.T) {
+	tests := []*qMethodTest{
+		&qMethodTest{start: telnetQNo, end: telnetQNo},
+		&qMethodTest{start: telnetQYes, end: telnetQNo, expected: Wont},
+		&qMethodTest{start: telnetQWantNoEmpty, end: telnetQNo},
+		&qMethodTest{start: telnetQWantNoOpposite, end: telnetQWantYesEmpty, expected: Will},
+		&qMethodTest{start: telnetQWantYesEmpty, end: telnetQNo},
+		&qMethodTest{start: telnetQWantYesOpposite, end: telnetQNo},
+	}
+	for _, q := range tests {
+		o := &option{code: SuppressGoAhead, us: q.start, allowThem: q.permitted}
+		o.receive(q, Dont)
+		assert.Equalf(t, q.end, o.us, "expected %s got %s", q.end, o.us)
+		if q.expected != 0 {
+			assert.Equal(t, []byte{q.expected, SuppressGoAhead}, q.actual)
+		}
+	}
+}
+
+func TestQMethodReceiveWill(t *testing.T) {
+	tests := []*qMethodTest{
+		&qMethodTest{start: telnetQNo, permitted: false, end: telnetQNo, expected: Dont},
+		&qMethodTest{start: telnetQNo, permitted: true, end: telnetQYes, expected: Do},
+		&qMethodTest{start: telnetQYes, end: telnetQYes},
+		&qMethodTest{start: telnetQWantNoEmpty, end: telnetQNo},
+		&qMethodTest{start: telnetQWantNoOpposite, end: telnetQYes},
+		&qMethodTest{start: telnetQWantYesEmpty, end: telnetQYes},
+		&qMethodTest{start: telnetQWantYesOpposite, end: telnetQWantNoEmpty, expected: Dont},
+	}
+	for _, q := range tests {
+		o := &option{code: SuppressGoAhead, them: q.start, allowThem: q.permitted}
+		o.receive(q, Will)
+		assert.Equalf(t, q.end, o.them, "expected %s got %s", q.end, o.them)
+		if q.expected != 0 {
+			assert.Equal(t, []byte{q.expected, SuppressGoAhead}, q.actual)
+		}
+	}
+}
+
+func TestQMethodReceiveWont(t *testing.T) {
+	tests := []*qMethodTest{
+		&qMethodTest{start: telnetQNo, end: telnetQNo},
+		&qMethodTest{start: telnetQYes, end: telnetQNo, expected: Dont},
+		&qMethodTest{start: telnetQWantNoEmpty, end: telnetQNo},
+		&qMethodTest{start: telnetQWantNoOpposite, end: telnetQWantYesEmpty, expected: Do},
+		&qMethodTest{start: telnetQWantYesEmpty, end: telnetQNo},
+		&qMethodTest{start: telnetQWantYesOpposite, end: telnetQNo},
+	}
+	for _, q := range tests {
+		o := &option{code: SuppressGoAhead, them: q.start, allowThem: q.permitted}
+		o.receive(q, Wont)
+		assert.Equalf(t, q.end, o.them, "expected %s got %s", q.end, o.them)
+		if q.expected != 0 {
+			assert.Equal(t, []byte{q.expected, SuppressGoAhead}, q.actual)
+		}
+	}
 }

@@ -8,10 +8,17 @@ type telnetProtocol struct {
 	in    io.Reader
 	out   io.Writer
 	state readerState
+
+	options map[byte]*option
 }
 
-func newTelnetProtocol(in io.Reader, out io.Writer) *telnetProtocol {
-	return &telnetProtocol{in, out, readAscii}
+func newTelnetProtocol(r io.Reader, w io.Writer) *telnetProtocol {
+	return &telnetProtocol{
+		in:      r,
+		out:     w,
+		state:   readAscii,
+		options: make(map[byte]*option),
+	}
 }
 
 func (p *telnetProtocol) Read(b []byte) (n int, err error) {
@@ -42,6 +49,15 @@ func (p *telnetProtocol) Write(b []byte) (n int, err error) {
 	return
 }
 
+func (p *telnetProtocol) getOption(c byte) (o *option) {
+	o, ok := p.options[c]
+	if !ok {
+		o = &option{code: c}
+		p.options[c] = o
+	}
+	return
+}
+
 func (p *telnetProtocol) sendCommand(cmd ...byte) (err error) {
 	cmd = append([]byte{InterpretAsCommand}, cmd...)
 	_, err = p.out.Write(cmd)
@@ -61,34 +77,112 @@ func readCommand(_ *telnetProtocol, c byte) (readerState, bool) {
 	switch c {
 	case InterpretAsCommand:
 		return readAscii, true
-	case Do:
-		return readDoOption, false
-	case Dont:
-		return readDontOption, false
-	case Will:
-		return readWillOption, false
-	case Wont:
-		return readWontOption, false
+	case Do, Dont, Will, Wont:
+		return readOption(c), false
 	}
 	return readAscii, false
 }
 
-func readDoOption(p *telnetProtocol, c byte) (readerState, bool) {
-	p.sendCommand(Wont, c)
-	return readAscii, false
+func readOption(cmd byte) readerState {
+	return func(p *telnetProtocol, c byte) (readerState, bool) {
+		opt := p.getOption(c)
+		opt.receive(p, cmd)
+		return readAscii, false
+	}
 }
 
-func readDontOption(p *telnetProtocol, c byte) (readerState, bool) {
-	p.sendCommand(Wont, c)
-	return readAscii, false
+type commandSender interface {
+	sendCommand(...byte) error
 }
 
-func readWillOption(p *telnetProtocol, c byte) (readerState, bool) {
-	p.sendCommand(Dont, c)
-	return readAscii, false
+type telnetQState int
+
+func (q telnetQState) String() string {
+	switch q {
+	case telnetQNo:
+		return "No"
+	case telnetQYes:
+		return "Yes"
+	case telnetQWantNoEmpty:
+		return "WantNo:Empty"
+	case telnetQWantNoOpposite:
+		return "WantNo:Opposite"
+	case telnetQWantYesEmpty:
+		return "WantYes:Empty"
+	case telnetQWantYesOpposite:
+		return "WantYes:Opposite"
+	default:
+		panic("unknown state")
+	}
 }
 
-func readWontOption(p *telnetProtocol, c byte) (readerState, bool) {
-	p.sendCommand(Dont, c)
-	return readAscii, false
+const (
+	telnetQNo telnetQState = 0 + iota
+	telnetQYes
+	telnetQWantNoEmpty
+	telnetQWantNoOpposite
+	telnetQWantYesEmpty
+	telnetQWantYesOpposite
+)
+
+type option struct {
+	code byte
+
+	allowUs, allowThem bool
+	us, them           telnetQState
+}
+
+func (o *option) receive(cs commandSender, req byte) {
+	switch req {
+	case Do:
+		o.receiveEnableRequest(cs, &o.us, o.allowUs, Will, Wont)
+	case Dont:
+		o.receiveDisableDemand(cs, &o.us, Will, Wont)
+	case Will:
+		o.receiveEnableRequest(cs, &o.them, o.allowThem, Do, Dont)
+	case Wont:
+		o.receiveDisableDemand(cs, &o.them, Do, Dont)
+	}
+}
+
+func (o *option) receiveEnableRequest(cs commandSender, state *telnetQState, allowed bool, accept, reject byte) {
+	switch *state {
+	case telnetQNo:
+		if allowed {
+			*state = telnetQYes
+			cs.sendCommand(accept, o.code)
+		} else {
+			cs.sendCommand(reject, o.code)
+		}
+	case telnetQYes:
+		// ignore
+	case telnetQWantNoEmpty:
+		*state = telnetQNo
+	case telnetQWantNoOpposite:
+		*state = telnetQYes
+	case telnetQWantYesEmpty:
+		*state = telnetQYes
+	case telnetQWantYesOpposite:
+		*state = telnetQWantNoEmpty
+		cs.sendCommand(reject, o.code)
+	}
+}
+
+func (o *option) receiveDisableDemand(cs commandSender, state *telnetQState, accept, reject byte) {
+	switch *state {
+	case telnetQNo:
+		// ignore
+	case telnetQYes:
+		*state = telnetQNo
+		cs.sendCommand(reject, o.code)
+	case telnetQWantNoEmpty:
+		*state = telnetQNo
+	case telnetQWantNoOpposite:
+		*state = telnetQWantYesEmpty
+		cs.sendCommand(accept, o.code)
+	case telnetQWantYesEmpty:
+		*state = telnetQNo
+	case telnetQWantYesOpposite:
+		*state = telnetQNo
+	}
 }
