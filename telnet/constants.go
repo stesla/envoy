@@ -26,6 +26,7 @@ const (
 // Telnet Options
 const (
 	TransmitBinary  = 0  // RFC 856
+	Echo            = 1  // RFC 857
 	SuppressGoAhead = 3  // RFC 858
 	Charset         = 42 // RFC 2066
 	TerminalType    = 24 // RFC 930

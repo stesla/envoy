@@ -134,22 +134,37 @@ func TestWriteIAC(t *testing.T) {
 ** Option Negotiation
 ***/
 
-func testOption(t *testing.T, command, response byte, message string, opts map[byte]*option) {
-	t.Logf("testOption %s", message)
-	r, w := processBytesWithOptions(t, []byte{'h', InterpretAsCommand, command, TransmitBinary, 'i'}, opts)
-	assertEqual(t, r, []byte("hi"))
-	assertEqual(t, w, []byte{InterpretAsCommand, response, TransmitBinary})
-}
-
-func TestNaiveOptionNegotiation(t *testing.T) {
-	testOption(t, Do, Wont, "Do", nil)
-	testOption(t, Will, Dont, "Will", nil)
-
-	opts := map[byte]*option{
-		TransmitBinary: &option{us: telnetQYes, them: telnetQYes},
+func TestDoNotSupportEcho(t *testing.T) {
+	tests := []struct {
+		command, response      byte
+		message                string
+		usEnabled, themEnabled bool
+	}{
+		{Will, Dont, "Will", false, false},
+		{Do, Wont, "Do", false, false},
+		{Wont, Dont, "Wont", false, true},
+		// This case will never happen, since we don't support the
+		// option and would never enable it, but to thoroughly test the
+		// option negotiation, I am adding it for completeness. What
+		// will _actually_ happen if we receive IAC DONT ECHO is
+		// absolutely nothing, because we already have it disabled, so
+		// we'll ignore it per the Q Method (RFC 1143).
+		{Dont, Wont, "Dont", true, false},
 	}
-	testOption(t, Dont, Wont, "Dont", opts)
-	testOption(t, Wont, Dont, "Wont", opts)
+	for _, test := range tests {
+		t.Logf("testOption %s", test.message)
+		o := &option{code: Echo}
+		if test.usEnabled {
+			o.us = telnetQYes
+		}
+		if test.themEnabled {
+			o.them = telnetQYes
+		}
+		opts := map[byte]*option{Echo: o}
+		r, w := processBytesWithOptions(t, []byte{'h', InterpretAsCommand, test.command, Echo, 'i'}, opts)
+		assertEqual(t, r, []byte("hi"))
+		assertEqual(t, w, []byte{InterpretAsCommand, test.response, Echo})
+	}
 }
 
 type qMethodTest struct {
