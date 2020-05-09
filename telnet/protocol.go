@@ -97,6 +97,15 @@ type commandSender interface {
 
 type telnetQState int
 
+const (
+	telnetQNo telnetQState = 0 + iota
+	telnetQYes
+	telnetQWantNoEmpty
+	telnetQWantNoOpposite
+	telnetQWantYesEmpty
+	telnetQWantYesOpposite
+)
+
 func (q telnetQState) String() string {
 	switch q {
 	case telnetQNo:
@@ -116,20 +125,63 @@ func (q telnetQState) String() string {
 	}
 }
 
-const (
-	telnetQNo telnetQState = 0 + iota
-	telnetQYes
-	telnetQWantNoEmpty
-	telnetQWantNoOpposite
-	telnetQWantYesEmpty
-	telnetQWantYesOpposite
-)
-
 type option struct {
 	code byte
 
 	allowUs, allowThem bool
 	us, them           telnetQState
+}
+
+func (o *option) disableThem(cs commandSender) {
+	o.disable(cs, &o.them, Dont)
+}
+
+func (o *option) disableUs(cs commandSender) {
+	o.disable(cs, &o.us, Wont)
+}
+
+func (o *option) disable(cs commandSender, state *telnetQState, cmd byte) {
+	switch *state {
+	case telnetQNo:
+		// ignore
+	case telnetQYes:
+		*state = telnetQWantNoEmpty
+		cs.sendCommand(cmd, o.code)
+	case telnetQWantNoEmpty:
+		// ignore
+	case telnetQWantNoOpposite:
+		*state = telnetQWantNoEmpty
+	case telnetQWantYesEmpty:
+		*state = telnetQWantYesOpposite
+	case telnetQWantYesOpposite:
+		// ignore
+	}
+}
+
+func (o *option) enableThem(cs commandSender) {
+	o.enable(cs, &o.them, Do)
+}
+
+func (o *option) enableUs(cs commandSender) {
+	o.enable(cs, &o.us, Will)
+}
+
+func (o *option) enable(cs commandSender, state *telnetQState, cmd byte) {
+	switch *state {
+	case telnetQNo:
+		*state = telnetQWantYesEmpty
+		cs.sendCommand(cmd, o.code)
+	case telnetQYes:
+		// ignore
+	case telnetQWantNoEmpty:
+		*state = telnetQWantNoOpposite
+	case telnetQWantNoOpposite:
+		// ignore
+	case telnetQWantYesEmpty:
+		// ignore
+	case telnetQWantYesOpposite:
+		*state = telnetQWantYesEmpty
+	}
 }
 
 func (o *option) receive(cs commandSender, req byte) {
