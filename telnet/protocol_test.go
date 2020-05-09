@@ -38,24 +38,48 @@ func processBytesWithOptions(b []byte, opts map[byte]*option) (r, w []byte, err 
 ***/
 
 func TestAsciiText(t *testing.T) {
-	r, w, err := processBytes([]byte("hello"))
+	r, _, err := processBytes([]byte("hello"))
 	assert.NoError(t, err)
 	assert.Equal(t, []byte("hello"), r)
-	assert.Equal(t, []byte{}, w)
 }
 
 func TestStripTelnetCommands(t *testing.T) {
-	r, w, err := processBytes([]byte{'h', InterpretAsCommand, NoOperation, 'i'})
+	r, _, err := processBytes([]byte{'h', InterpretAsCommand, NoOperation, 'i'})
 	assert.NoError(t, err)
 	assert.Equal(t, []byte("hi"), r)
-	assert.Equal(t, []byte{}, w)
 }
 
 func TestEscapedIAC(t *testing.T) {
-	r, w, err := processBytes([]byte{'h', InterpretAsCommand, InterpretAsCommand, 'i'})
+	r, _, err := processBytes([]byte{'h', InterpretAsCommand, InterpretAsCommand, 'i'})
 	assert.NoError(t, err)
 	assert.Equal(t, []byte("h\xffi"), r)
-	assert.Equal(t, []byte{}, w)
+}
+
+func TestCRLFIsNewline(t *testing.T) {
+	r, _, err := processBytes([]byte("foo\r\nbar"))
+	assert.NoError(t, err)
+	assert.Equal(t, []byte("foo\nbar"), r)
+}
+
+func TestCRNULIsCarriageReturn(t *testing.T) {
+	r, _, err := processBytes([]byte("foo\r\x00bar"))
+	assert.NoError(t, err)
+	assert.Equal(t, []byte("foo\rbar"), r)
+}
+
+func TestCRIsOtherwiseIgnored(t *testing.T) {
+	const (
+		minByte byte = 0
+		maxByte      = ^minByte
+	)
+	for c := minByte; c < maxByte; c++ {
+		if c == '\x00' || c == '\n' {
+			continue
+		}
+		r, _, err := processBytes([]byte{'h', '\r', c, 'i'})
+		assert.NoError(t, err)
+		assert.Equal(t, []byte{'h', c, 'i'}, r)
+	}
 }
 
 func TestSplitCommand(t *testing.T) {
@@ -102,32 +126,31 @@ func TestErrorReading(t *testing.T) {
 ** Write
 ***/
 
+func sendBytes(in []byte) []byte {
+	var r, w bytes.Buffer
+	p := newTelnetProtocol(&r, &w)
+	p.Write(in)
+	return w.Bytes()
+}
+
 func TestWriteAscii(t *testing.T) {
-	var in, out bytes.Buffer
-	protocol := newTelnetProtocol(&in, &out)
-	expected := []byte("hello")
-	n, err := protocol.Write(expected)
-	if err != nil {
-		t.Fatalf("Error Writing: %q", err)
-	}
-	if n != len(expected) {
-		t.Fatalf("Expected to write %d but wrote %d", len(expected), n)
-	}
-	assert.Equal(t, expected, out.Bytes())
+	actual := sendBytes([]byte("hello"))
+	assert.Equal(t, []byte("hello"), actual)
 }
 
 func TestWriteIAC(t *testing.T) {
-	var in, out bytes.Buffer
-	protocol := newTelnetProtocol(&in, &out)
-	n, err := protocol.Write([]byte{'h', InterpretAsCommand, 'i'})
-	if err != nil {
-		t.Fatalf("Error Writing: %q", err)
-	}
-	if n != 3 {
-		t.Fatalf("Expected to write 3 but wrote %d", n)
-	}
-	expected := []byte{'h', InterpretAsCommand, InterpretAsCommand, 'i'}
-	assert.Equal(t, expected, out.Bytes())
+	actual := sendBytes([]byte{'h', InterpretAsCommand, 'i'})
+	assert.Equal(t, []byte{'h', InterpretAsCommand, InterpretAsCommand, 'i'}, actual)
+}
+
+func TestWriteNewline(t *testing.T) {
+	actual := sendBytes([]byte("foo\nbar"))
+	assert.Equal(t, []byte("foo\r\nbar"), actual)
+}
+
+func TestWriteCarriageReturn(t *testing.T) {
+	actual := sendBytes([]byte("foo\rbar"))
+	assert.Equal(t, []byte("foo\r\x00bar"), actual)
 }
 
 /***

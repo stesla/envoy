@@ -27,9 +27,10 @@ func (p *telnetProtocol) Read(b []byte) (n int, err error) {
 	buf = buf[:nr]
 	for len(buf) > 0 && n < len(b) {
 		var ok bool
-		p.state, ok = p.state(p, buf[0])
+		var c byte
+		p.state, c, ok = p.state(p, buf[0])
 		if ok {
-			b[n] = buf[0]
+			b[n] = c
 			n++
 		}
 		buf = buf[1:]
@@ -39,9 +40,14 @@ func (p *telnetProtocol) Read(b []byte) (n int, err error) {
 
 func (p *telnetProtocol) Write(b []byte) (n int, err error) {
 	for n = 0; len(b) > 0 && err == nil; n++ {
-		if b[0] == InterpretAsCommand {
+		switch b[0] {
+		case InterpretAsCommand:
 			err = p.sendCommand(InterpretAsCommand)
-		} else {
+		case '\n':
+			_, err = p.out.Write([]byte("\r\n"))
+		case '\r':
+			_, err = p.out.Write([]byte("\r\x00"))
+		default:
 			_, err = p.out.Write(b[0:1])
 		}
 		b = b[1:]
@@ -64,30 +70,40 @@ func (p *telnetProtocol) sendCommand(cmd ...byte) (err error) {
 	return
 }
 
-type readerState func(*telnetProtocol, byte) (readerState, bool)
+type readerState func(*telnetProtocol, byte) (readerState, byte, bool)
 
-func readAscii(_ *telnetProtocol, c byte) (readerState, bool) {
-	if c == InterpretAsCommand {
-		return readCommand, false
-	}
-	return readAscii, true
-}
-
-func readCommand(_ *telnetProtocol, c byte) (readerState, bool) {
+func readAscii(_ *telnetProtocol, c byte) (readerState, byte, bool) {
 	switch c {
 	case InterpretAsCommand:
-		return readAscii, true
-	case Do, Dont, Will, Wont:
-		return readOption(c), false
+		return readCommand, c, false
+	case '\r':
+		return readCR, c, false
 	}
-	return readAscii, false
+	return readAscii, c, true
+}
+
+func readCommand(_ *telnetProtocol, c byte) (readerState, byte, bool) {
+	switch c {
+	case InterpretAsCommand:
+		return readAscii, c, true
+	case Do, Dont, Will, Wont:
+		return readOption(c), c, false
+	}
+	return readAscii, c, false
+}
+
+func readCR(_ *telnetProtocol, c byte) (readerState, byte, bool) {
+	if c == '\x00' {
+		return readAscii, '\r', true
+	}
+	return readAscii, c, true
 }
 
 func readOption(cmd byte) readerState {
-	return func(p *telnetProtocol, c byte) (readerState, bool) {
+	return func(p *telnetProtocol, c byte) (readerState, byte, bool) {
 		opt := p.getOption(c)
 		opt.receive(p, cmd)
-		return readAscii, false
+		return readAscii, c, false
 	}
 }
 
