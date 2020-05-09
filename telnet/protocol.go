@@ -41,8 +41,8 @@ func (p *telnetProtocol) Read(b []byte) (n int, err error) {
 func (p *telnetProtocol) Write(b []byte) (n int, err error) {
 	for n = 0; len(b) > 0 && err == nil; n++ {
 		switch b[0] {
-		case InterpretAsCommand:
-			err = p.sendCommand(InterpretAsCommand)
+		case IAC:
+			err = p.sendCommand(IAC)
 		case '\n':
 			_, err = p.out.Write([]byte("\r\n"))
 		case '\r':
@@ -65,7 +65,7 @@ func (p *telnetProtocol) getOption(c byte) (o *option) {
 }
 
 func (p *telnetProtocol) sendCommand(cmd ...byte) (err error) {
-	cmd = append([]byte{InterpretAsCommand}, cmd...)
+	cmd = append([]byte{IAC}, cmd...)
 	_, err = p.out.Write(cmd)
 	return
 }
@@ -74,7 +74,7 @@ type readerState func(*telnetProtocol, byte) (readerState, byte, bool)
 
 func readAscii(_ *telnetProtocol, c byte) (readerState, byte, bool) {
 	switch c {
-	case InterpretAsCommand:
+	case IAC:
 		return readCommand, c, false
 	case '\r':
 		return readCR, c, false
@@ -84,9 +84,9 @@ func readAscii(_ *telnetProtocol, c byte) (readerState, byte, bool) {
 
 func readCommand(_ *telnetProtocol, c byte) (readerState, byte, bool) {
 	switch c {
-	case InterpretAsCommand:
+	case IAC:
 		return readAscii, c, true
-	case Do, Dont, Will, Wont:
+	case DO, DONT, WILL, WONT:
 		return readOption(c), c, false
 	}
 	return readAscii, c, false
@@ -149,11 +149,11 @@ type option struct {
 }
 
 func (o *option) disableThem(cs commandSender) {
-	o.disable(cs, &o.them, Dont)
+	o.disable(cs, &o.them, DONT)
 }
 
 func (o *option) disableUs(cs commandSender) {
-	o.disable(cs, &o.us, Wont)
+	o.disable(cs, &o.us, WONT)
 }
 
 func (o *option) disable(cs commandSender, state *telnetQState, cmd byte) {
@@ -175,11 +175,11 @@ func (o *option) disable(cs commandSender, state *telnetQState, cmd byte) {
 }
 
 func (o *option) enableThem(cs commandSender) {
-	o.enable(cs, &o.them, Do)
+	o.enable(cs, &o.them, DO)
 }
 
 func (o *option) enableUs(cs commandSender) {
-	o.enable(cs, &o.us, Will)
+	o.enable(cs, &o.us, WILL)
 }
 
 func (o *option) enable(cs commandSender, state *telnetQState, cmd byte) {
@@ -202,14 +202,14 @@ func (o *option) enable(cs commandSender, state *telnetQState, cmd byte) {
 
 func (o *option) receive(cs commandSender, req byte) {
 	switch req {
-	case Do:
-		o.receiveEnableRequest(cs, &o.us, o.allowUs, Will, Wont)
-	case Dont:
-		o.receiveDisableDemand(cs, &o.us, Will, Wont)
-	case Will:
-		o.receiveEnableRequest(cs, &o.them, o.allowThem, Do, Dont)
-	case Wont:
-		o.receiveDisableDemand(cs, &o.them, Do, Dont)
+	case DO:
+		o.receiveEnableRequest(cs, &o.us, o.allowUs, WILL, WONT)
+	case DONT:
+		o.receiveDisableDemand(cs, &o.us, WILL, WONT)
+	case WILL:
+		o.receiveEnableRequest(cs, &o.them, o.allowThem, DO, DONT)
+	case WONT:
+		o.receiveDisableDemand(cs, &o.them, DO, DONT)
 	}
 }
 

@@ -44,13 +44,13 @@ func TestAsciiText(t *testing.T) {
 }
 
 func TestStripTelnetCommands(t *testing.T) {
-	r, _, err := processBytes([]byte{'h', InterpretAsCommand, NoOperation, 'i'})
+	r, _, err := processBytes([]byte{'h', IAC, NOP, 'i'})
 	assert.NoError(t, err)
 	assert.Equal(t, []byte("hi"), r)
 }
 
 func TestEscapedIAC(t *testing.T) {
-	r, _, err := processBytes([]byte{'h', InterpretAsCommand, InterpretAsCommand, 'i'})
+	r, _, err := processBytes([]byte{'h', IAC, IAC, 'i'})
 	assert.NoError(t, err)
 	assert.Equal(t, []byte("h\xffi"), r)
 }
@@ -87,10 +87,10 @@ func TestSplitCommand(t *testing.T) {
 	protocol := newTelnetProtocol(&in, &out)
 
 	r := make([]byte, 2)
-	in.Write([]byte{'h', InterpretAsCommand})
+	in.Write([]byte{'h', IAC})
 	n, _ := protocol.Read(r)
 	assert.Equal(t, []byte("h"), r[:n])
-	in.Write([]byte{NoOperation, 'i'})
+	in.Write([]byte{NOP, 'i'})
 	n, _ = protocol.Read(r)
 	assert.Equal(t, []byte("i"), r[:n])
 }
@@ -139,8 +139,8 @@ func TestWriteAscii(t *testing.T) {
 }
 
 func TestWriteIAC(t *testing.T) {
-	actual := sendBytes([]byte{'h', InterpretAsCommand, 'i'})
-	assert.Equal(t, []byte{'h', InterpretAsCommand, InterpretAsCommand, 'i'}, actual)
+	actual := sendBytes([]byte{'h', IAC, 'i'})
+	assert.Equal(t, []byte{'h', IAC, IAC, 'i'}, actual)
 }
 
 func TestWriteNewline(t *testing.T) {
@@ -157,22 +157,22 @@ func TestWriteCarriageReturn(t *testing.T) {
 ** Option Negotiation
 ***/
 
-func TestDoNotSupportEcho(t *testing.T) {
+func TestDONotSupportEcho(t *testing.T) {
 	tests := []struct {
 		command, response      byte
 		message                string
 		usEnabled, themEnabled bool
 	}{
-		{Will, Dont, "Will", false, false},
-		{Do, Wont, "Do", false, false},
-		{Wont, Dont, "Wont", false, true},
+		{WILL, DONT, "WILL", false, false},
+		{DO, WONT, "DO", false, false},
+		{WONT, DONT, "WONT", false, true},
 		// This case will never happen, since we don't support the
 		// option and would never enable it, but to thoroughly test the
 		// option negotiation, I am adding it for completeness. What
 		// will _actually_ happen if we receive IAC DONT ECHO is
 		// absolutely nothing, because we already have it disabled, so
 		// we'll ignore it per the Q Method (RFC 1143).
-		{Dont, Wont, "Dont", true, false},
+		{DONT, WONT, "DONT", true, false},
 	}
 	for _, test := range tests {
 		t.Logf("testOption %s", test.message)
@@ -184,10 +184,10 @@ func TestDoNotSupportEcho(t *testing.T) {
 			o.them = telnetQYes
 		}
 		opts := map[byte]*option{Echo: o}
-		r, w, err := processBytesWithOptions([]byte{'h', InterpretAsCommand, test.command, Echo, 'i'}, opts)
+		r, w, err := processBytesWithOptions([]byte{'h', IAC, test.command, Echo, 'i'}, opts)
 		assert.NoError(t, err)
 		assert.Equal(t, []byte("hi"), r)
-		assert.Equal(t, []byte{InterpretAsCommand, test.response, Echo}, w)
+		assert.Equal(t, []byte{IAC, test.response, Echo}, w)
 	}
 }
 
@@ -203,19 +203,19 @@ func (q *qMethodTest) sendCommand(actual ...byte) error {
 	return nil
 }
 
-func TestQMethodReceiveDo(t *testing.T) {
+func TestQMethodReceiveDO(t *testing.T) {
 	tests := []*qMethodTest{
-		&qMethodTest{start: telnetQNo, permitted: false, end: telnetQNo, expected: Wont},
-		&qMethodTest{start: telnetQNo, permitted: true, end: telnetQYes, expected: Will},
+		&qMethodTest{start: telnetQNo, permitted: false, end: telnetQNo, expected: WONT},
+		&qMethodTest{start: telnetQNo, permitted: true, end: telnetQYes, expected: WILL},
 		&qMethodTest{start: telnetQYes, end: telnetQYes},
 		&qMethodTest{start: telnetQWantNoEmpty, end: telnetQNo},
 		&qMethodTest{start: telnetQWantNoOpposite, end: telnetQYes},
 		&qMethodTest{start: telnetQWantYesEmpty, end: telnetQYes},
-		&qMethodTest{start: telnetQWantYesOpposite, end: telnetQWantNoEmpty, expected: Wont},
+		&qMethodTest{start: telnetQWantYesOpposite, end: telnetQWantNoEmpty, expected: WONT},
 	}
 	for _, q := range tests {
 		o := &option{code: SuppressGoAhead, us: q.start, allowUs: q.permitted}
-		o.receive(q, Do)
+		o.receive(q, DO)
 		assert.Equalf(t, q.end, o.us, "expected %s got %s", q.end, o.us)
 		if q.expected != 0 {
 			assert.Equal(t, []byte{q.expected, SuppressGoAhead}, q.actual)
@@ -223,18 +223,18 @@ func TestQMethodReceiveDo(t *testing.T) {
 	}
 }
 
-func TestQMethodReceiveDont(t *testing.T) {
+func TestQMethodReceiveDONT(t *testing.T) {
 	tests := []*qMethodTest{
 		&qMethodTest{start: telnetQNo, end: telnetQNo},
-		&qMethodTest{start: telnetQYes, end: telnetQNo, expected: Wont},
+		&qMethodTest{start: telnetQYes, end: telnetQNo, expected: WONT},
 		&qMethodTest{start: telnetQWantNoEmpty, end: telnetQNo},
-		&qMethodTest{start: telnetQWantNoOpposite, end: telnetQWantYesEmpty, expected: Will},
+		&qMethodTest{start: telnetQWantNoOpposite, end: telnetQWantYesEmpty, expected: WILL},
 		&qMethodTest{start: telnetQWantYesEmpty, end: telnetQNo},
 		&qMethodTest{start: telnetQWantYesOpposite, end: telnetQNo},
 	}
 	for _, q := range tests {
 		o := &option{code: SuppressGoAhead, us: q.start, allowThem: q.permitted}
-		o.receive(q, Dont)
+		o.receive(q, DONT)
 		assert.Equalf(t, q.end, o.us, "expected %s got %s", q.end, o.us)
 		if q.expected != 0 {
 			assert.Equal(t, []byte{q.expected, SuppressGoAhead}, q.actual)
@@ -242,19 +242,19 @@ func TestQMethodReceiveDont(t *testing.T) {
 	}
 }
 
-func TestQMethodReceiveWill(t *testing.T) {
+func TestQMethodReceiveWILL(t *testing.T) {
 	tests := []*qMethodTest{
-		&qMethodTest{start: telnetQNo, permitted: false, end: telnetQNo, expected: Dont},
-		&qMethodTest{start: telnetQNo, permitted: true, end: telnetQYes, expected: Do},
+		&qMethodTest{start: telnetQNo, permitted: false, end: telnetQNo, expected: DONT},
+		&qMethodTest{start: telnetQNo, permitted: true, end: telnetQYes, expected: DO},
 		&qMethodTest{start: telnetQYes, end: telnetQYes},
 		&qMethodTest{start: telnetQWantNoEmpty, end: telnetQNo},
 		&qMethodTest{start: telnetQWantNoOpposite, end: telnetQYes},
 		&qMethodTest{start: telnetQWantYesEmpty, end: telnetQYes},
-		&qMethodTest{start: telnetQWantYesOpposite, end: telnetQWantNoEmpty, expected: Dont},
+		&qMethodTest{start: telnetQWantYesOpposite, end: telnetQWantNoEmpty, expected: DONT},
 	}
 	for _, q := range tests {
 		o := &option{code: SuppressGoAhead, them: q.start, allowThem: q.permitted}
-		o.receive(q, Will)
+		o.receive(q, WILL)
 		assert.Equalf(t, q.end, o.them, "expected %s got %s", q.end, o.them)
 		if q.expected != 0 {
 			assert.Equal(t, []byte{q.expected, SuppressGoAhead}, q.actual)
@@ -262,18 +262,18 @@ func TestQMethodReceiveWill(t *testing.T) {
 	}
 }
 
-func TestQMethodReceiveWont(t *testing.T) {
+func TestQMethodReceiveWONT(t *testing.T) {
 	tests := []*qMethodTest{
 		&qMethodTest{start: telnetQNo, end: telnetQNo},
-		&qMethodTest{start: telnetQYes, end: telnetQNo, expected: Dont},
+		&qMethodTest{start: telnetQYes, end: telnetQNo, expected: DONT},
 		&qMethodTest{start: telnetQWantNoEmpty, end: telnetQNo},
-		&qMethodTest{start: telnetQWantNoOpposite, end: telnetQWantYesEmpty, expected: Do},
+		&qMethodTest{start: telnetQWantNoOpposite, end: telnetQWantYesEmpty, expected: DO},
 		&qMethodTest{start: telnetQWantYesEmpty, end: telnetQNo},
 		&qMethodTest{start: telnetQWantYesOpposite, end: telnetQNo},
 	}
 	for _, q := range tests {
 		o := &option{code: SuppressGoAhead, them: q.start, allowThem: q.permitted}
-		o.receive(q, Wont)
+		o.receive(q, WONT)
 		assert.Equalf(t, q.end, o.them, "expected %s got %s", q.end, o.them)
 		if q.expected != 0 {
 			assert.Equal(t, []byte{q.expected, SuppressGoAhead}, q.actual)
@@ -283,7 +283,7 @@ func TestQMethodReceiveWont(t *testing.T) {
 
 func TestQMethodAskEnableThem(t *testing.T) {
 	tests := []*qMethodTest{
-		&qMethodTest{start: telnetQNo, end: telnetQWantYesEmpty, expected: Do},
+		&qMethodTest{start: telnetQNo, end: telnetQWantYesEmpty, expected: DO},
 		&qMethodTest{start: telnetQYes, end: telnetQYes},
 		&qMethodTest{start: telnetQWantNoEmpty, end: telnetQWantNoOpposite},
 		&qMethodTest{start: telnetQWantNoOpposite, end: telnetQWantNoOpposite},
@@ -303,7 +303,7 @@ func TestQMethodAskEnableThem(t *testing.T) {
 func TestQMethodDisableThem(t *testing.T) {
 	tests := []*qMethodTest{
 		&qMethodTest{start: telnetQNo, end: telnetQNo},
-		&qMethodTest{start: telnetQYes, end: telnetQWantNoEmpty, expected: Dont},
+		&qMethodTest{start: telnetQYes, end: telnetQWantNoEmpty, expected: DONT},
 		&qMethodTest{start: telnetQWantNoEmpty, end: telnetQWantNoEmpty},
 		&qMethodTest{start: telnetQWantNoOpposite, end: telnetQWantNoEmpty},
 		&qMethodTest{start: telnetQWantYesEmpty, end: telnetQWantYesOpposite},
@@ -321,7 +321,7 @@ func TestQMethodDisableThem(t *testing.T) {
 
 func TestQMethodEnableUs(t *testing.T) {
 	tests := []*qMethodTest{
-		&qMethodTest{start: telnetQNo, end: telnetQWantYesEmpty, expected: Will},
+		&qMethodTest{start: telnetQNo, end: telnetQWantYesEmpty, expected: WILL},
 		&qMethodTest{start: telnetQYes, end: telnetQYes},
 		&qMethodTest{start: telnetQWantNoEmpty, end: telnetQWantNoOpposite},
 		&qMethodTest{start: telnetQWantNoOpposite, end: telnetQWantNoOpposite},
@@ -341,7 +341,7 @@ func TestQMethodEnableUs(t *testing.T) {
 func TestQMethodDisableUs(t *testing.T) {
 	tests := []*qMethodTest{
 		&qMethodTest{start: telnetQNo, end: telnetQNo},
-		&qMethodTest{start: telnetQYes, end: telnetQWantNoEmpty, expected: Wont},
+		&qMethodTest{start: telnetQYes, end: telnetQWantNoEmpty, expected: WONT},
 		&qMethodTest{start: telnetQWantNoEmpty, end: telnetQWantNoEmpty},
 		&qMethodTest{start: telnetQWantNoOpposite, end: telnetQWantNoEmpty},
 		&qMethodTest{start: telnetQWantYesEmpty, end: telnetQWantYesOpposite},
