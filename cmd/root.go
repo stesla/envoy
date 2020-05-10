@@ -24,6 +24,9 @@ func Execute() {
 }
 
 func init() {
+	log.SetFormatter(&log.TextFormatter{
+		FullTimestamp: true,
+	})
 	cobra.OnInitialize(initConfig)
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.envoyrc)")
 }
