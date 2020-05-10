@@ -1,11 +1,11 @@
 package cmd
 
 import (
-	"log"
 	"net/http"
 	_ "net/http/pprof"
 
 	homedir "github.com/mitchellh/go-homedir"
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -50,6 +50,7 @@ func initConfig() {
 	viper.WatchConfig()
 
 	if addr := viper.GetString("debugaddr"); addr != "" {
+		log.SetLevel(log.DebugLevel)
 		go launchProfiler(addr)
 	}
 }
