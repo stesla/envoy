@@ -2,18 +2,22 @@ package telnet
 
 import (
 	"bytes"
-	"github.com/stretchr/testify/assert"
 	"testing"
+
+	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 )
 
 /*
  * Read
  */
 
+var testLogFields = log.Fields{"type": "tests"}
+
 func TestConnReadAscii(t *testing.T) {
 	var expected = []byte("abc123")
 	var r = bytes.NewReader(expected)
-	c := newConnection("tests", r, nil)
+	c := newConnection(testLogFields, r, nil)
 
 	var buf = make([]byte, 2*r.Len())
 	nr, er := c.Read(buf)
@@ -25,7 +29,7 @@ func TestConnReadAscii(t *testing.T) {
 
 func TestConnReadNonAscii(t *testing.T) {
 	var r = bytes.NewReader([]byte("a»b"))
-	c := newConnection("tests", r, nil)
+	c := newConnection(testLogFields, r, nil)
 
 	var buf = make([]byte, 2*r.Len())
 	nr, er := c.Read(buf)
@@ -39,7 +43,7 @@ func TestConnReadNonAscii(t *testing.T) {
 func TestConnReadUTF8(t *testing.T) {
 	var expected = []byte("a»b")
 	var r = bytes.NewReader(expected)
-	c := newConnection("tests", r, nil)
+	c := newConnection(testLogFields, r, nil)
 	c.SetEncoding(EncodingUTF8)
 
 	var buf = make([]byte, 2*r.Len())
@@ -56,7 +60,7 @@ func TestConnReadUTF8(t *testing.T) {
 
 func TestConnWriteAscii(t *testing.T) {
 	var w bytes.Buffer
-	c := newConnection("tests", nil, &w)
+	c := newConnection(testLogFields, nil, &w)
 
 	var expected = []byte("abc123")
 	nw, ew := c.Write(expected)
@@ -69,7 +73,7 @@ func TestConnWriteAscii(t *testing.T) {
 
 func TestConnWriteNonAscii(t *testing.T) {
 	var w bytes.Buffer
-	c := newConnection("tests", nil, &w)
+	c := newConnection(testLogFields, nil, &w)
 
 	nw, ew := c.Write([]byte("abc»123"))
 	if assert.Error(t, ew) {
@@ -80,7 +84,7 @@ func TestConnWriteNonAscii(t *testing.T) {
 
 func TestConnWriteUTF8(t *testing.T) {
 	var w bytes.Buffer
-	c := newConnection("tests", nil, &w)
+	c := newConnection(testLogFields, nil, &w)
 	c.SetEncoding(EncodingUTF8)
 
 	var expected = []byte("abc»123")

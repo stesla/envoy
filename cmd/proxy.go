@@ -46,8 +46,8 @@ func start(cmd *cobra.Command, args []string) {
 			log.Fatal(err)
 		}
 
-		name := fmt.Sprintf("client(%s)", conn.RemoteAddr())
-		go startsession(telnet.Wrap(name, conn))
+		fields := log.Fields{"type": "client", "addr": conn.RemoteAddr()}
+		go startsession(telnet.Wrap(fields, conn))
 	}
 }
 

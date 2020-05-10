@@ -7,23 +7,27 @@ import (
 )
 
 type telnetProtocol struct {
-	name  string
-	in    io.Reader
-	out   io.Writer
-	state readerState
+	fields log.Fields
+	in     io.Reader
+	out    io.Writer
+	state  readerState
 
 	*optionMap
 }
 
-func newTelnetProtocol(name string, r io.Reader, w io.Writer) *telnetProtocol {
+func newTelnetProtocol(fields log.Fields, r io.Reader, w io.Writer) *telnetProtocol {
 	p := &telnetProtocol{
-		name:  name,
-		in:    r,
-		out:   w,
-		state: readAscii,
+		fields: fields,
+		in:     r,
+		out:    w,
+		state:  readAscii,
 	}
 	p.optionMap = newOptionMap(p)
 	return p
+}
+
+func (p *telnetProtocol) withFields() *log.Entry {
+	return log.WithFields(p.fields)
 }
 
 func (p *telnetProtocol) Read(b []byte) (n int, err error) {
@@ -67,7 +71,7 @@ func (p *telnetProtocol) sendCommand(cmd ...byte) (err error) {
 		for _, c := range cmd {
 			str += " " + command(c).String()
 		}
-		log.Debugf("%s: %s", p.name, str)
+		p.withFields().Debug(str)
 	}
 	_, err = p.out.Write(cmd)
 	return
@@ -88,12 +92,12 @@ func readAscii(_ *telnetProtocol, c byte) (readerState, byte, bool) {
 func readCommand(p *telnetProtocol, c byte) (readerState, byte, bool) {
 	switch c {
 	case IAC:
-		log.Debugf("%s: RECV IAC IAC", p.name)
+		p.withFields().Debug("RECV IAC IAC")
 		return readAscii, c, true
 	case DO, DONT, WILL, WONT:
 		return readOption(c), c, false
 	}
-	log.Debugf("%s: RECV IAC %s", p.name, command(c))
+	p.withFields().Debugf("RECV IAC %s", command(c))
 	return readAscii, c, false
 }
 
@@ -106,7 +110,7 @@ func readCR(_ *telnetProtocol, c byte) (readerState, byte, bool) {
 
 func readOption(cmd byte) readerState {
 	return func(p *telnetProtocol, c byte) (readerState, byte, bool) {
-		log.Debugf("%s: RECV IAC %s %s", p.name, command(cmd), command(c))
+		p.withFields().Debugf("RECV IAC %s %s", command(cmd), command(c))
 		opt := p.get(c)
 		opt.receive(cmd)
 		return readAscii, c, false

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+
+	log "github.com/sirupsen/logrus"
 )
 
 type Conn interface {
@@ -26,17 +28,18 @@ func Dial(addr string) (Conn, error) {
 	if er != nil {
 		return nil, er
 	}
-	return Wrap(fmt.Sprintf("server(%s)", addr), conn), nil
+	fields := log.Fields{"type": "server", "addr": addr}
+	return Wrap(fields, conn), nil
 }
 
-func Wrap(name string, conn net.Conn) Conn {
-	c := newConnection(name, conn, conn)
+func Wrap(fields log.Fields, conn net.Conn) Conn {
+	c := newConnection(fields, conn, conn)
 	c.conn = conn
 	return c
 }
 
-func newConnection(name string, r io.Reader, w io.Writer) *connection {
-	c := &connection{p: newTelnetProtocol(name, r, w)}
+func newConnection(fields log.Fields, r io.Reader, w io.Writer) *connection {
+	c := &connection{p: newTelnetProtocol(fields, r, w)}
 	c.initializeOptions()
 	c.SetEncoding(EncodingAscii)
 	return c

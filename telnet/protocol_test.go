@@ -15,7 +15,7 @@ func processBytes(b []byte) (r, w []byte, _ error) {
 func processBytesWithOptions(b []byte, opts *optionMap) (r, w []byte, err error) {
 	in := bytes.NewBuffer(b)
 	var out bytes.Buffer
-	protocol := newTelnetProtocol("tests", in, &out)
+	protocol := newTelnetProtocol(testLogFields, in, &out)
 	protocol.optionMap.merge(opts)
 
 	r = make([]byte, len(b)) // At most we'll read all the bytes
@@ -82,7 +82,7 @@ func TestCRIsOtherwiseIgnored(t *testing.T) {
 
 func TestSplitCommand(t *testing.T) {
 	var in, out bytes.Buffer
-	protocol := newTelnetProtocol("tests", &in, &out)
+	protocol := newTelnetProtocol(testLogFields, &in, &out)
 
 	r := make([]byte, 2)
 	in.Write([]byte{'h', IAC})
@@ -108,7 +108,7 @@ func (r boomReader) Read(b []byte) (n int, err error) {
 
 func TestErrorReading(t *testing.T) {
 	var out bytes.Buffer
-	protocol := newTelnetProtocol("tests", boomReader(2), &out)
+	protocol := newTelnetProtocol(testLogFields, boomReader(2), &out)
 	buf := make([]byte, 16)
 	n, err := protocol.Read(buf)
 	if err == nil {
@@ -126,7 +126,7 @@ func TestErrorReading(t *testing.T) {
 
 func sendBytes(in []byte) []byte {
 	var r, w bytes.Buffer
-	p := newTelnetProtocol("tests", &r, &w)
+	p := newTelnetProtocol(testLogFields, &r, &w)
 	p.Write(in)
 	return w.Bytes()
 }
