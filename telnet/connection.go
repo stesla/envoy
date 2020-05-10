@@ -8,6 +8,13 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+type ConnType string
+
+const (
+	ServerType ConnType = "server"
+	ClientType ConnType = "client"
+)
+
 type Conn interface {
 	io.ReadWriteCloser
 	Conn() net.Conn
@@ -30,7 +37,7 @@ func Dial(addr string) (Conn, error) {
 	if er != nil {
 		return nil, er
 	}
-	fields := log.Fields{"type": "server", "addr": addr}
+	fields := log.Fields{"type": ServerType, "addr": addr}
 	return Wrap(fields, conn), nil
 }
 
@@ -77,10 +84,13 @@ func (c *connection) initializeOptions() {
 }
 
 func (c *connection) NegotiateOptions() {
-	c.p.get(EndOfRecord).enableUs()
-	c.p.get(EndOfRecord).enableThem()
-	c.p.get(SuppressGoAhead).enableUs()
-	c.p.get(SuppressGoAhead).enableThem()
+	switch c.p.ctype {
+	case ClientType:
+		c.p.get(EndOfRecord).enableUs()
+		c.p.get(EndOfRecord).enableThem()
+		c.p.get(SuppressGoAhead).enableUs()
+		c.p.get(SuppressGoAhead).enableThem()
+	}
 }
 
 type invalidCodepointError byte

@@ -7,6 +7,7 @@ import (
 )
 
 type telnetProtocol struct {
+	ctype  ConnType
 	fields log.Fields
 	in     io.Reader
 	out    io.Writer
@@ -22,6 +23,7 @@ func newTelnetProtocol(fields log.Fields, r io.Reader, w io.Writer) *telnetProto
 		out:    w,
 		state:  readAscii,
 	}
+	p.ctype = fields["type"].(ConnType)
 	p.optionMap = newOptionMap(p)
 	return p
 }

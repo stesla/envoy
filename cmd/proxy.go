@@ -46,7 +46,7 @@ func start(cmd *cobra.Command, args []string) {
 			log.Fatal(err)
 		}
 
-		fields := log.Fields{"type": "client", "addr": conn.RemoteAddr()}
+		fields := log.Fields{"type": telnet.ClientType, "addr": conn.RemoteAddr()}
 		go startsession(telnet.Wrap(fields, conn))
 	}
 }
@@ -210,6 +210,7 @@ func (p *proxy) loop() {
 					req.ch <- err
 					break
 				}
+				conn.NegotiateOptions()
 				server = conn
 				if logfile != nil {
 					logr, logw := io.Pipe()
