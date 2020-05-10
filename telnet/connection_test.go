@@ -12,7 +12,7 @@ import (
  * Read
  */
 
-var testLogFields = log.Fields{"type": "tests"}
+var testLogFields = log.Fields{"type": ClientType}
 
 func TestConnReadAscii(t *testing.T) {
 	var expected = []byte("abc123")
