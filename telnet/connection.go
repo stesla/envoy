@@ -13,6 +13,8 @@ type Conn interface {
 	Conn() net.Conn
 	SetEncoding(Encoding)
 	NegotiateOptions()
+
+	LogEntry() *log.Entry
 }
 
 type connection struct {
@@ -65,13 +67,20 @@ func (c *connection) SetEncoding(e Encoding) {
 	}
 }
 
+func (c *connection) LogEntry() *log.Entry {
+	return c.p.withFields()
+}
+
 func (c *connection) initializeOptions() {
+	c.p.get(EndOfRecord).allow(true, true)
 	c.p.get(SuppressGoAhead).allow(true, true)
 }
 
 func (c *connection) NegotiateOptions() {
-	c.p.get(SuppressGoAhead).enableThem()
+	c.p.get(EndOfRecord).enableUs()
+	c.p.get(EndOfRecord).enableThem()
 	c.p.get(SuppressGoAhead).enableUs()
+	c.p.get(SuppressGoAhead).enableThem()
 }
 
 type invalidCodepointError byte

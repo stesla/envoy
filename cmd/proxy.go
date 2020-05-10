@@ -59,6 +59,7 @@ Welcome to Envoy
 `
 
 func startsession(conn telnet.Conn) {
+	conn.LogEntry().Println("connected")
 	conn.NegotiateOptions()
 
 	fmt.Fprintln(conn, motd)
@@ -84,7 +85,7 @@ func startsession(conn telnet.Conn) {
 		return
 	}
 
-	err = proxy.AddClient(&client{Reader: r, WriteCloser: conn})
+	err = proxy.AddClient(&client{r: r, Conn: conn})
 	if err != nil {
 		msg := fmt.Sprintf("error connecting to world '%s': %v", proxy.Name, err)
 		log.Println(msg)
@@ -100,8 +101,12 @@ type addClientReq struct {
 }
 
 type client struct {
-	io.Reader
-	io.WriteCloser
+	r io.Reader
+	telnet.Conn
+}
+
+func (c *client) Read(p []byte) (int, error) {
+	return c.r.Read(p)
 }
 
 type ioresult struct {
@@ -147,6 +152,7 @@ func (p *proxy) connect() (conn telnet.Conn, log *os.File, err error) {
 	if err != nil {
 		return
 	}
+	conn.LogEntry().Println("connected")
 
 	if p.Log != "" {
 		log, err = p.openLog()
@@ -194,6 +200,7 @@ func (p *proxy) loop() {
 				deleteClient(c)
 			}
 			ch <- server.Close()
+			server.LogEntry().Println("disconnected")
 			return
 
 		case req := <-p.addClient:
@@ -203,7 +210,6 @@ func (p *proxy) loop() {
 					req.ch <- err
 					break
 				}
-				conn.NegotiateOptions()
 				server = conn
 				if logfile != nil {
 					logr, logw := io.Pipe()
@@ -217,7 +223,12 @@ func (p *proxy) loop() {
 			close(req.ch)
 			clients[req.c] = struct{}{}
 			history.WriteTo(req.c)
-			go io.Copy(p.ServerWriter(), req.c)
+			go func() {
+				io.Copy(p.ServerWriter(), req.c)
+				if c, ok := req.c.(*client); ok {
+					c.LogEntry().Println("disconnected")
+				}
+			}()
 
 		case req := <-writeClient:
 			for c, _ := range clients {
