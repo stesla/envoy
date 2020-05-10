@@ -10,6 +10,7 @@ type Conn interface {
 	io.ReadWriteCloser
 	Conn() net.Conn
 	SetEncoding(Encoding)
+	NegotiateOptions()
 }
 
 type connection struct {
@@ -36,6 +37,7 @@ func Wrap(name string, conn net.Conn) Conn {
 
 func newConnection(name string, r io.Reader, w io.Writer) *connection {
 	c := &connection{p: newTelnetProtocol(name, r, w)}
+	c.initializeOptions()
 	c.SetEncoding(EncodingAscii)
 	return c
 }
@@ -58,6 +60,15 @@ func (c *connection) SetEncoding(e Encoding) {
 	default:
 		panic("invalid encoding")
 	}
+}
+
+func (c *connection) initializeOptions() {
+	c.p.get(SuppressGoAhead).allow(true, true)
+}
+
+func (c *connection) NegotiateOptions() {
+	c.p.get(SuppressGoAhead).enableThem()
+	c.p.get(SuppressGoAhead).enableUs()
 }
 
 type invalidCodepointError byte

@@ -12,17 +12,18 @@ type telnetProtocol struct {
 	out   io.Writer
 	state readerState
 
-	options map[byte]*option
+	*optionMap
 }
 
 func newTelnetProtocol(name string, r io.Reader, w io.Writer) *telnetProtocol {
-	return &telnetProtocol{
-		name:    name,
-		in:      r,
-		out:     w,
-		state:   readAscii,
-		options: make(map[byte]*option),
+	p := &telnetProtocol{
+		name:  name,
+		in:    r,
+		out:   w,
+		state: readAscii,
 	}
+	p.optionMap = newOptionMap(p)
+	return p
 }
 
 func (p *telnetProtocol) Read(b []byte) (n int, err error) {
@@ -55,15 +56,6 @@ func (p *telnetProtocol) Write(b []byte) (n int, err error) {
 			_, err = p.out.Write(b[0:1])
 		}
 		b = b[1:]
-	}
-	return
-}
-
-func (p *telnetProtocol) getOption(c byte) (o *option) {
-	o, ok := p.options[c]
-	if !ok {
-		o = &option{code: c}
-		p.options[c] = o
 	}
 	return
 }
@@ -115,14 +107,160 @@ func readCR(_ *telnetProtocol, c byte) (readerState, byte, bool) {
 func readOption(cmd byte) readerState {
 	return func(p *telnetProtocol, c byte) (readerState, byte, bool) {
 		log.Debugf("%s: RECV IAC %s %s", p.name, command(cmd), command(c))
-		opt := p.getOption(c)
-		opt.receive(p, cmd)
+		opt := p.get(c)
+		opt.receive(cmd)
 		return readAscii, c, false
 	}
 }
 
 type commandSender interface {
 	sendCommand(...byte) error
+}
+
+type optionMap struct {
+	cs commandSender
+	m  map[byte]*option
+}
+
+func newOptionMap(cs commandSender) (o *optionMap) {
+	o = &optionMap{cs: cs, m: make(map[byte]*option)}
+	return
+}
+
+func (o *optionMap) get(c byte) (opt *option) {
+	opt, ok := o.m[c]
+	if !ok {
+		opt = &option{cs: o.cs, code: c}
+		o.m[c] = opt
+	}
+	return
+}
+
+func (o *optionMap) merge(m *optionMap) {
+	for k, v := range m.m {
+		u := o.get(k)
+		u.allowUs, u.allowThem = v.allowUs, v.allowThem
+		u.us, u.them = v.us, v.them
+	}
+}
+
+type option struct {
+	cs   commandSender
+	code byte
+
+	allowUs, allowThem bool
+	us, them           telnetQState
+}
+
+func (o *option) allow(us, them bool) {
+	o.allowUs, o.allowThem = us, them
+}
+
+func (o *option) disableThem() {
+	o.disable(&o.them, DONT)
+}
+
+func (o *option) disableUs() {
+	o.disable(&o.us, WONT)
+}
+
+func (o *option) disable(state *telnetQState, cmd byte) {
+	switch *state {
+	case telnetQNo:
+		// ignore
+	case telnetQYes:
+		*state = telnetQWantNoEmpty
+		o.cs.sendCommand(cmd, o.code)
+	case telnetQWantNoEmpty:
+		// ignore
+	case telnetQWantNoOpposite:
+		*state = telnetQWantNoEmpty
+	case telnetQWantYesEmpty:
+		*state = telnetQWantYesOpposite
+	case telnetQWantYesOpposite:
+		// ignore
+	}
+}
+
+func (o *option) enableThem() {
+	o.enable(&o.them, DO)
+}
+
+func (o *option) enableUs() {
+	o.enable(&o.us, WILL)
+}
+
+func (o *option) enable(state *telnetQState, cmd byte) {
+	switch *state {
+	case telnetQNo:
+		*state = telnetQWantYesEmpty
+		o.cs.sendCommand(cmd, o.code)
+	case telnetQYes:
+		// ignore
+	case telnetQWantNoEmpty:
+		*state = telnetQWantNoOpposite
+	case telnetQWantNoOpposite:
+		// ignore
+	case telnetQWantYesEmpty:
+		// ignore
+	case telnetQWantYesOpposite:
+		*state = telnetQWantYesEmpty
+	}
+}
+
+func (o *option) receive(req byte) {
+	switch req {
+	case DO:
+		o.receiveEnableRequest(&o.us, o.allowUs, WILL, WONT)
+	case DONT:
+		o.receiveDisableDemand(&o.us, WILL, WONT)
+	case WILL:
+		o.receiveEnableRequest(&o.them, o.allowThem, DO, DONT)
+	case WONT:
+		o.receiveDisableDemand(&o.them, DO, DONT)
+	}
+}
+
+func (o *option) receiveEnableRequest(state *telnetQState, allowed bool, accept, reject byte) {
+	switch *state {
+	case telnetQNo:
+		if allowed {
+			*state = telnetQYes
+			o.cs.sendCommand(accept, o.code)
+		} else {
+			o.cs.sendCommand(reject, o.code)
+		}
+	case telnetQYes:
+		// ignore
+	case telnetQWantNoEmpty:
+		*state = telnetQNo
+	case telnetQWantNoOpposite:
+		*state = telnetQYes
+	case telnetQWantYesEmpty:
+		*state = telnetQYes
+	case telnetQWantYesOpposite:
+		*state = telnetQWantNoEmpty
+		o.cs.sendCommand(reject, o.code)
+	}
+}
+
+func (o *option) receiveDisableDemand(state *telnetQState, accept, reject byte) {
+	switch *state {
+	case telnetQNo:
+		// ignore
+	case telnetQYes:
+		*state = telnetQNo
+		o.cs.sendCommand(reject, o.code)
+	case telnetQWantNoEmpty:
+		*state = telnetQNo
+	case telnetQWantNoOpposite:
+		*state = telnetQWantYesEmpty
+		o.cs.sendCommand(accept, o.code)
+	case telnetQWantYesEmpty:
+		*state = telnetQNo
+	case telnetQWantYesOpposite:
+		*state = telnetQNo
+	}
 }
 
 type telnetQState int
@@ -152,119 +290,5 @@ func (q telnetQState) String() string {
 		return "WantYes:Opposite"
 	default:
 		panic("unknown state")
-	}
-}
-
-type option struct {
-	code byte
-
-	allowUs, allowThem bool
-	us, them           telnetQState
-}
-
-func (o *option) disableThem(cs commandSender) {
-	o.disable(cs, &o.them, DONT)
-}
-
-func (o *option) disableUs(cs commandSender) {
-	o.disable(cs, &o.us, WONT)
-}
-
-func (o *option) disable(cs commandSender, state *telnetQState, cmd byte) {
-	switch *state {
-	case telnetQNo:
-		// ignore
-	case telnetQYes:
-		*state = telnetQWantNoEmpty
-		cs.sendCommand(cmd, o.code)
-	case telnetQWantNoEmpty:
-		// ignore
-	case telnetQWantNoOpposite:
-		*state = telnetQWantNoEmpty
-	case telnetQWantYesEmpty:
-		*state = telnetQWantYesOpposite
-	case telnetQWantYesOpposite:
-		// ignore
-	}
-}
-
-func (o *option) enableThem(cs commandSender) {
-	o.enable(cs, &o.them, DO)
-}
-
-func (o *option) enableUs(cs commandSender) {
-	o.enable(cs, &o.us, WILL)
-}
-
-func (o *option) enable(cs commandSender, state *telnetQState, cmd byte) {
-	switch *state {
-	case telnetQNo:
-		*state = telnetQWantYesEmpty
-		cs.sendCommand(cmd, o.code)
-	case telnetQYes:
-		// ignore
-	case telnetQWantNoEmpty:
-		*state = telnetQWantNoOpposite
-	case telnetQWantNoOpposite:
-		// ignore
-	case telnetQWantYesEmpty:
-		// ignore
-	case telnetQWantYesOpposite:
-		*state = telnetQWantYesEmpty
-	}
-}
-
-func (o *option) receive(cs commandSender, req byte) {
-	switch req {
-	case DO:
-		o.receiveEnableRequest(cs, &o.us, o.allowUs, WILL, WONT)
-	case DONT:
-		o.receiveDisableDemand(cs, &o.us, WILL, WONT)
-	case WILL:
-		o.receiveEnableRequest(cs, &o.them, o.allowThem, DO, DONT)
-	case WONT:
-		o.receiveDisableDemand(cs, &o.them, DO, DONT)
-	}
-}
-
-func (o *option) receiveEnableRequest(cs commandSender, state *telnetQState, allowed bool, accept, reject byte) {
-	switch *state {
-	case telnetQNo:
-		if allowed {
-			*state = telnetQYes
-			cs.sendCommand(accept, o.code)
-		} else {
-			cs.sendCommand(reject, o.code)
-		}
-	case telnetQYes:
-		// ignore
-	case telnetQWantNoEmpty:
-		*state = telnetQNo
-	case telnetQWantNoOpposite:
-		*state = telnetQYes
-	case telnetQWantYesEmpty:
-		*state = telnetQYes
-	case telnetQWantYesOpposite:
-		*state = telnetQWantNoEmpty
-		cs.sendCommand(reject, o.code)
-	}
-}
-
-func (o *option) receiveDisableDemand(cs commandSender, state *telnetQState, accept, reject byte) {
-	switch *state {
-	case telnetQNo:
-		// ignore
-	case telnetQYes:
-		*state = telnetQNo
-		cs.sendCommand(reject, o.code)
-	case telnetQWantNoEmpty:
-		*state = telnetQNo
-	case telnetQWantNoOpposite:
-		*state = telnetQWantYesEmpty
-		cs.sendCommand(accept, o.code)
-	case telnetQWantYesEmpty:
-		*state = telnetQNo
-	case telnetQWantYesOpposite:
-		*state = telnetQNo
 	}
 }

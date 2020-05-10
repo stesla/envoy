@@ -46,7 +46,8 @@ func start(cmd *cobra.Command, args []string) {
 			log.Fatal(err)
 		}
 
-		go startsession(telnet.Wrap("client", conn))
+		name := fmt.Sprintf("client(%s)", conn.RemoteAddr())
+		go startsession(telnet.Wrap(name, conn))
 	}
 }
 
@@ -58,6 +59,8 @@ Welcome to Envoy
 `
 
 func startsession(conn telnet.Conn) {
+	conn.NegotiateOptions()
+
 	fmt.Fprintln(conn, motd)
 
 	r := bufio.NewReader(conn)
@@ -200,6 +203,7 @@ func (p *proxy) loop() {
 					req.ch <- err
 					break
 				}
+				conn.NegotiateOptions()
 				server = conn
 				if logfile != nil {
 					logr, logw := io.Pipe()
