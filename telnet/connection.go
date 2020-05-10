@@ -7,64 +7,48 @@ import (
 )
 
 type Conn interface {
-	net.Conn
-}
-
-type Client interface {
 	io.ReadWriteCloser
+	Conn() net.Conn
 	SetEncoding(Encoding)
 }
 
 type connection struct {
-	net.Conn
-	c Client
+	io.Reader
+	io.Writer
+
+	conn net.Conn
+	p    *telnetProtocol
 }
 
 func Dial(addr string) (Conn, error) {
-	con, er := net.Dial("tcp", addr)
+	conn, er := net.Dial("tcp", addr)
 	if er != nil {
 		return nil, er
 	}
-	return &connection{
-		Conn: con,
-		c:    NewClient(con, con),
-	}, nil
+	return Wrap(fmt.Sprintf("server(%s)", addr), conn), nil
 }
 
-func (c *connection) Read(b []byte) (int, error) {
-	return c.c.Read(b)
+func Wrap(name string, conn net.Conn) Conn {
+	c := newConnection(name, conn, conn)
+	c.conn = conn
+	return c
 }
 
-func (c *connection) Write(b []byte) (int, error) {
-	return c.c.Write(b)
-}
-
-func (c *connection) Close() error {
-	if err := c.c.Close(); err != nil {
-		c.Conn.Close()
-		return err
-	} else {
-		return c.Conn.Close()
-	}
-}
-
-type client struct {
-	io.Reader
-	io.Writer
-	p *telnetProtocol
-}
-
-func NewClient(r io.Reader, w io.Writer) Client {
-	c := &client{p: newTelnetProtocol(r, w)}
+func newConnection(name string, r io.Reader, w io.Writer) *connection {
+	c := &connection{p: newTelnetProtocol(name, r, w)}
 	c.SetEncoding(EncodingAscii)
 	return c
 }
 
-func (c *client) Close() error {
-	return nil
+func (c *connection) Close() error {
+	return c.conn.Close()
 }
 
-func (c *client) SetEncoding(e Encoding) {
+func (c *connection) Conn() net.Conn {
+	return c.conn
+}
+
+func (c *connection) SetEncoding(e Encoding) {
 	switch e {
 	case EncodingAscii:
 		c.Reader = newAsciiDecoder(c.p)

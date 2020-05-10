@@ -10,10 +10,10 @@ import (
  * Read
  */
 
-func TestClientReadAscii(t *testing.T) {
+func TestConnReadAscii(t *testing.T) {
 	var expected = []byte("abc123")
 	var r = bytes.NewReader(expected)
-	c := NewClient(r, nil)
+	c := newConnection("tests", r, nil)
 
 	var buf = make([]byte, 2*r.Len())
 	nr, er := c.Read(buf)
@@ -23,9 +23,9 @@ func TestClientReadAscii(t *testing.T) {
 	assert.Equal(t, expected, buf[:nr])
 }
 
-func TestClientReadNonAscii(t *testing.T) {
+func TestConnReadNonAscii(t *testing.T) {
 	var r = bytes.NewReader([]byte("a»b"))
-	c := NewClient(r, nil)
+	c := newConnection("tests", r, nil)
 
 	var buf = make([]byte, 2*r.Len())
 	nr, er := c.Read(buf)
@@ -36,10 +36,10 @@ func TestClientReadNonAscii(t *testing.T) {
 	assert.Equal(t, expected, buf[:nr])
 }
 
-func TestClientReadUTF8(t *testing.T) {
+func TestConnReadUTF8(t *testing.T) {
 	var expected = []byte("a»b")
 	var r = bytes.NewReader(expected)
-	c := NewClient(r, nil)
+	c := newConnection("tests", r, nil)
 	c.SetEncoding(EncodingUTF8)
 
 	var buf = make([]byte, 2*r.Len())
@@ -54,9 +54,9 @@ func TestClientReadUTF8(t *testing.T) {
  * Write()
  */
 
-func TestClientWriteAscii(t *testing.T) {
+func TestConnWriteAscii(t *testing.T) {
 	var w bytes.Buffer
-	c := NewClient(nil, &w)
+	c := newConnection("tests", nil, &w)
 
 	var expected = []byte("abc123")
 	nw, ew := c.Write(expected)
@@ -67,9 +67,9 @@ func TestClientWriteAscii(t *testing.T) {
 	}
 }
 
-func TestClientWriteNonAscii(t *testing.T) {
+func TestConnWriteNonAscii(t *testing.T) {
 	var w bytes.Buffer
-	c := NewClient(nil, &w)
+	c := newConnection("tests", nil, &w)
 
 	nw, ew := c.Write([]byte("abc»123"))
 	if assert.Error(t, ew) {
@@ -78,9 +78,9 @@ func TestClientWriteNonAscii(t *testing.T) {
 	}
 }
 
-func TestClientWriteUTF8(t *testing.T) {
+func TestConnWriteUTF8(t *testing.T) {
 	var w bytes.Buffer
-	c := NewClient(nil, &w)
+	c := newConnection("tests", nil, &w)
 	c.SetEncoding(EncodingUTF8)
 
 	var expected = []byte("abc»123")

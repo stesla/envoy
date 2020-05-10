@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bufio"
+	"envoy/telnet"
 	"fmt"
 	"io"
 	"net"
@@ -45,7 +46,7 @@ func start(cmd *cobra.Command, args []string) {
 			log.Fatal(err)
 		}
 
-		go startsession(conn)
+		go startsession(telnet.Wrap("client", conn))
 	}
 }
 
@@ -56,7 +57,7 @@ Welcome to Envoy
 ------------------------------------------------------------------------
 `
 
-func startsession(conn net.Conn) {
+func startsession(conn telnet.Conn) {
 	fmt.Fprintln(conn, motd)
 
 	r := bufio.NewReader(conn)
@@ -138,8 +139,8 @@ func (p *proxy) ServerWriter() io.Writer {
 	return &writereqWriter{p.writeServer}
 }
 
-func (p *proxy) connect() (conn net.Conn, log *os.File, err error) {
-	conn, err = net.Dial("tcp", p.Address)
+func (p *proxy) connect() (conn telnet.Conn, log *os.File, err error) {
+	conn, err = telnet.Dial(p.Address)
 	if err != nil {
 		return
 	}
@@ -172,7 +173,7 @@ func (p *proxy) loop() {
 	var history = newHistory()
 	clients[history] = struct{}{}
 
-	var server net.Conn
+	var server telnet.Conn
 	var readServer chan struct{}
 	var readServerDone chan struct{}
 	var writeClient = p.writeClient

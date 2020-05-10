@@ -2,9 +2,12 @@ package telnet
 
 import (
 	"io"
+
+	log "github.com/sirupsen/logrus"
 )
 
 type telnetProtocol struct {
+	name  string
 	in    io.Reader
 	out   io.Writer
 	state readerState
@@ -12,8 +15,9 @@ type telnetProtocol struct {
 	options map[byte]*option
 }
 
-func newTelnetProtocol(r io.Reader, w io.Writer) *telnetProtocol {
+func newTelnetProtocol(name string, r io.Reader, w io.Writer) *telnetProtocol {
 	return &telnetProtocol{
+		name:    name,
 		in:      r,
 		out:     w,
 		state:   readAscii,
@@ -66,6 +70,13 @@ func (p *telnetProtocol) getOption(c byte) (o *option) {
 
 func (p *telnetProtocol) sendCommand(cmd ...byte) (err error) {
 	cmd = append([]byte{IAC}, cmd...)
+	if log.IsLevelEnabled(log.DebugLevel) {
+		str := "SENT"
+		for _, c := range cmd {
+			str += " " + command(c).String()
+		}
+		log.Debugf("%s: %s", p.name, str)
+	}
 	_, err = p.out.Write(cmd)
 	return
 }
@@ -82,13 +93,15 @@ func readAscii(_ *telnetProtocol, c byte) (readerState, byte, bool) {
 	return readAscii, c, true
 }
 
-func readCommand(_ *telnetProtocol, c byte) (readerState, byte, bool) {
+func readCommand(p *telnetProtocol, c byte) (readerState, byte, bool) {
 	switch c {
 	case IAC:
+		log.Debugf("%s: RECV IAC IAC", p.name)
 		return readAscii, c, true
 	case DO, DONT, WILL, WONT:
 		return readOption(c), c, false
 	}
+	log.Debugf("%s: RECV IAC %s", p.name, command(c))
 	return readAscii, c, false
 }
 
@@ -101,6 +114,7 @@ func readCR(_ *telnetProtocol, c byte) (readerState, byte, bool) {
 
 func readOption(cmd byte) readerState {
 	return func(p *telnetProtocol, c byte) (readerState, byte, bool) {
+		log.Debugf("%s: RECV IAC %s %s", p.name, command(cmd), command(c))
 		opt := p.getOption(c)
 		opt.receive(p, cmd)
 		return readAscii, c, false

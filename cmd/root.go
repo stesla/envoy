@@ -50,8 +50,16 @@ func initConfig() {
 	viper.WatchConfig()
 
 	if addr := viper.GetString("debugaddr"); addr != "" {
-		log.SetLevel(log.DebugLevel)
 		go launchProfiler(addr)
+	}
+
+	if str := viper.GetString("loglevel"); str != "" {
+		level, err := log.ParseLevel(str)
+		if err != nil {
+			log.Fatal("error parsing loglevel: ", err)
+		}
+		log.SetLevel(level)
+		log.Println("loglevel set to", level)
 	}
 }
 

@@ -15,7 +15,7 @@ func processBytes(b []byte) (r, w []byte, _ error) {
 func processBytesWithOptions(b []byte, opts map[byte]*option) (r, w []byte, err error) {
 	in := bytes.NewBuffer(b)
 	var out bytes.Buffer
-	protocol := newTelnetProtocol(in, &out)
+	protocol := newTelnetProtocol("tests", in, &out)
 	if opts != nil {
 		protocol.options = opts
 	}
@@ -84,7 +84,7 @@ func TestCRIsOtherwiseIgnored(t *testing.T) {
 
 func TestSplitCommand(t *testing.T) {
 	var in, out bytes.Buffer
-	protocol := newTelnetProtocol(&in, &out)
+	protocol := newTelnetProtocol("tests", &in, &out)
 
 	r := make([]byte, 2)
 	in.Write([]byte{'h', IAC})
@@ -110,7 +110,7 @@ func (r boomReader) Read(b []byte) (n int, err error) {
 
 func TestErrorReading(t *testing.T) {
 	var out bytes.Buffer
-	protocol := newTelnetProtocol(boomReader(2), &out)
+	protocol := newTelnetProtocol("tests", boomReader(2), &out)
 	buf := make([]byte, 16)
 	n, err := protocol.Read(buf)
 	if err == nil {
@@ -128,7 +128,7 @@ func TestErrorReading(t *testing.T) {
 
 func sendBytes(in []byte) []byte {
 	var r, w bytes.Buffer
-	p := newTelnetProtocol(&r, &w)
+	p := newTelnetProtocol("tests", &r, &w)
 	p.Write(in)
 	return w.Bytes()
 }
