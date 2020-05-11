@@ -13,7 +13,7 @@ type telnetProtocol struct {
 	fields log.Fields
 	in     io.Reader
 	out    io.Writer
-	state  readerState
+	state  decodeState
 
 	io.Reader
 	io.Writer
@@ -26,7 +26,7 @@ func newTelnetProtocol(fields log.Fields, r io.Reader, w io.Writer) *telnetProto
 		fields: fields,
 		in:     r,
 		out:    w,
-		state:  readByte,
+		state:  decodeByte,
 	}
 	p.ctype = fields["type"].(ConnType)
 	p.optionMap = newOptionMap(p)
@@ -75,6 +75,45 @@ func (d *telnetDecoder) Transform(dst, src []byte, _ bool) (nDst, nSrc int, err 
 	return
 }
 
+type decodeState func(*telnetProtocol, byte) (decodeState, byte, bool)
+
+func decodeByte(_ *telnetProtocol, c byte) (decodeState, byte, bool) {
+	switch c {
+	case IAC:
+		return decodeCommand, c, false
+	case '\r':
+		return decodeCR, c, false
+	}
+	return decodeByte, c, true
+}
+
+func decodeCommand(p *telnetProtocol, c byte) (decodeState, byte, bool) {
+	switch c {
+	case IAC:
+		p.withFields().Debug("RECV IAC IAC")
+		return decodeByte, c, true
+	case DO, DONT, WILL, WONT:
+		return decodeOption(c), c, false
+	}
+	p.withFields().Debugf("RECV IAC %s", commandByte(c))
+	return decodeByte, c, false
+}
+
+func decodeCR(_ *telnetProtocol, c byte) (decodeState, byte, bool) {
+	if c == '\x00' {
+		return decodeByte, '\r', true
+	}
+	return decodeByte, c, true
+}
+
+func decodeOption(cmd byte) decodeState {
+	return func(p *telnetProtocol, c byte) (decodeState, byte, bool) {
+		opt := p.get(c)
+		opt.receive(cmd)
+		return decodeByte, c, false
+	}
+}
+
 type telnetEncoder struct {
 	p *telnetProtocol
 }
@@ -103,43 +142,4 @@ func (d *telnetEncoder) Transform(dst, src []byte, _ bool) (nDst, nSrc int, err 
 		nSrc = i + 1
 	}
 	return
-}
-
-type readerState func(*telnetProtocol, byte) (readerState, byte, bool)
-
-func readByte(_ *telnetProtocol, c byte) (readerState, byte, bool) {
-	switch c {
-	case IAC:
-		return readCommand, c, false
-	case '\r':
-		return readCR, c, false
-	}
-	return readByte, c, true
-}
-
-func readCommand(p *telnetProtocol, c byte) (readerState, byte, bool) {
-	switch c {
-	case IAC:
-		p.withFields().Debug("RECV IAC IAC")
-		return readByte, c, true
-	case DO, DONT, WILL, WONT:
-		return readOption(c), c, false
-	}
-	p.withFields().Debugf("RECV IAC %s", commandByte(c))
-	return readByte, c, false
-}
-
-func readCR(_ *telnetProtocol, c byte) (readerState, byte, bool) {
-	if c == '\x00' {
-		return readByte, '\r', true
-	}
-	return readByte, c, true
-}
-
-func readOption(cmd byte) readerState {
-	return func(p *telnetProtocol, c byte) (readerState, byte, bool) {
-		opt := p.get(c)
-		opt.receive(cmd)
-		return readByte, c, false
-	}
 }
