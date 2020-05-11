@@ -3,19 +3,10 @@ package telnet
 import "fmt"
 
 const (
-	TransmitBinary  = 0   // RFC 856
-	Echo            = 1   // RFC 857
-	SuppressGoAhead = 3   // RFC 858
-	Charset         = 42  // RFC 2066
-	TerminalType    = 24  // RFC 930
-	NAWS            = 31  // RFC 1073
-	EndOfRecord     = 25  // RFC 885
-	EOR             = 239 // RFC 885
-)
-
-const (
+	// RFC 885
+	EOR = 239 + iota
 	// RFC 854
-	SE = 240 + iota
+	SE
 	NOP
 	DM
 	BRK
@@ -33,57 +24,57 @@ const (
 	IAC
 )
 
-type command byte
+type commandByte byte
 
-func (c command) String() string {
-	switch c {
-	case AO:
-		return "AO"
-	case AYT:
-		return "AYT"
-	case SB:
-		return "SB"
-	case BRK:
-		return "BRK"
-	case Charset:
-		return "CHARSET"
-	case DM:
-		return "DM"
-	case DO:
-		return "DO"
-	case DONT:
-		return "DONT"
-	case Echo:
-		return "ECHO"
-	case EndOfRecord:
-		return "END-OF-RECORD"
-	case SE:
-		return "SE"
-	case EC:
-		return "EC"
-	case EL:
-		return "EL"
-	case GA:
-		return "GA"
-	case IAC:
-		return "IAC"
-	case IP:
-		return "IP"
-	case NAWS:
-		return "NAWS"
-	case NOP:
-		return "NOP"
-	case SuppressGoAhead:
-		return "SUPPRESS-GO-AHEAD"
-	case TerminalType:
-		return "TERMINAL-TYPE"
-	case WILL:
-		return "WILL"
-	case WONT:
-		return "WONT"
-	case TransmitBinary:
-		return "TRANSMIT-BINARY"
-	default:
-		return fmt.Sprintf("%d", c)
+func (c commandByte) String() string {
+	str, ok := map[commandByte]string{
+		AO:   "AO",
+		AYT:  "AYT",
+		SB:   "SB",
+		BRK:  "BRK",
+		DM:   "DM",
+		DO:   "DO",
+		DONT: "DONT",
+		Echo: "ECHO",
+		SE:   "SE",
+		EC:   "EC",
+		EL:   "EL",
+		GA:   "GA",
+		IAC:  "IAC",
+		IP:   "IP",
+		NOP:  "NOP",
+		WILL: "WILL",
+		WONT: "WONT",
+	}[c]
+	if ok {
+		return str
 	}
+	return fmt.Sprintf("%d", c)
+}
+
+const (
+	TransmitBinary  = 0  // RFC 856
+	Echo            = 1  // RFC 857
+	SuppressGoAhead = 3  // RFC 858
+	Charset         = 42 // RFC 2066
+	TerminalType    = 24 // RFC 930
+	NAWS            = 31 // RFC 1073
+	EndOfRecord     = 25 // RFC 885
+)
+
+type optionByte byte
+
+func (c optionByte) String() string {
+	str, ok := map[optionByte]string{
+		Charset:         "CHARSET",
+		EndOfRecord:     "END-OF-RECORD",
+		NAWS:            "NAWS",
+		SuppressGoAhead: "SUPPRESS-GO-AHEAD",
+		TerminalType:    "TERMINAL-TYPE",
+		TransmitBinary:  "TRANSMIT-BINARY",
+	}[c]
+	if ok {
+		return str
+	}
+	return fmt.Sprintf("%d", c)
 }

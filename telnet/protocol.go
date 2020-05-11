@@ -125,7 +125,7 @@ func readCommand(p *telnetProtocol, c byte) (readerState, byte, bool) {
 	case DO, DONT, WILL, WONT:
 		return readOption(c), c, false
 	}
-	p.withFields().Debugf("RECV IAC %s", command(c))
+	p.withFields().Debugf("RECV IAC %s", commandByte(c))
 	return readByte, c, false
 }
 
@@ -138,7 +138,6 @@ func readCR(_ *telnetProtocol, c byte) (readerState, byte, bool) {
 
 func readOption(cmd byte) readerState {
 	return func(p *telnetProtocol, c byte) (readerState, byte, bool) {
-		p.withFields().Debugf("RECV IAC %s %s", command(cmd), command(c))
 		opt := p.get(c)
 		opt.receive(cmd)
 		return readByte, c, false
