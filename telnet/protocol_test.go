@@ -10,24 +10,27 @@ import (
 	"golang.org/x/text/transform"
 )
 
-func processBytes(b []byte) (r, w []byte, _ error) {
-	return processBytesWithOptions(b, newOptionMap(nil))
+type decodeTest struct {
+	in  []byte
+	out bytes.Buffer
+	p   *telnetProtocol
 }
 
-func processBytesWithOptions(b []byte, opts *optionMap) (r, w []byte, err error) {
-	in := bytes.NewBuffer(b)
-	var out bytes.Buffer
-	p := newTelnetProtocol(testLogFields, in, &out)
-	p.setEncoding(Raw)
-	p.optionMap.merge(opts)
+func newDecodeTest(input []byte) (dt *decodeTest) {
+	dt = &decodeTest{in: input}
+	in := bytes.NewBuffer(dt.in)
+	dt.p = newTelnetProtocol(testLogFields, in, &dt.out)
+	return
+}
 
-	r = make([]byte, len(b)) // At most we'll read all the bytes
-	nr, er := p.Read(r)
+func (t *decodeTest) decode() (r, w []byte, err error) {
+	r = make([]byte, len(t.in)) // At most we'll read all the bytes
+	nr, er := t.p.Read(r)
 	if er != nil {
 		err = fmt.Errorf("Read: %q", er)
 	}
 	r = r[0:nr] // Truncate to the length actually read
-	w = out.Bytes()
+	w = t.out.Bytes()
 	if w == nil {
 		w = []byte{}
 	}
@@ -39,31 +42,33 @@ func processBytesWithOptions(b []byte, opts *optionMap) (r, w []byte, err error)
 ***/
 
 func TestAsciiText(t *testing.T) {
-	r, _, err := processBytes([]byte("hello"))
+	r, _, err := newDecodeTest([]byte("hello")).decode()
 	assert.NoError(t, err)
 	assert.Equal(t, []byte("hello"), r)
 }
 
 func TestStripTelnetCommands(t *testing.T) {
-	r, _, err := processBytes([]byte{'h', IAC, NOP, 'i'})
+	r, _, err := newDecodeTest([]byte{'h', IAC, NOP, 'i'}).decode()
 	assert.NoError(t, err)
 	assert.Equal(t, []byte("hi"), r)
 }
 
 func TestEscapedIAC(t *testing.T) {
-	r, _, err := processBytes([]byte{'h', IAC, IAC, 'i'})
+	test := newDecodeTest([]byte{'h', IAC, IAC, 'i'})
+	test.p.setEncoding(Raw)
+	r, _, err := test.decode()
 	assert.NoError(t, err)
 	assert.Equal(t, []byte{'h', IAC, 'i'}, r)
 }
 
 func TestCRLFIsNewline(t *testing.T) {
-	r, _, err := processBytes([]byte("foo\r\nbar"))
+	r, _, err := newDecodeTest([]byte("foo\r\nbar")).decode()
 	assert.NoError(t, err)
 	assert.Equal(t, []byte("foo\nbar"), r)
 }
 
 func TestCRNULIsCarriageReturn(t *testing.T) {
-	r, _, err := processBytes([]byte("foo\r\x00bar"))
+	r, _, err := newDecodeTest([]byte("foo\r\x00bar")).decode()
 	assert.NoError(t, err)
 	assert.Equal(t, []byte("foo\rbar"), r)
 }
@@ -77,7 +82,7 @@ func TestCRIsOtherwiseIgnored(t *testing.T) {
 		if c == '\x00' || c == '\n' {
 			continue
 		}
-		r, _, err := processBytes([]byte{'h', '\r', c, 'i'})
+		r, _, err := newDecodeTest([]byte{'h', '\r', c, 'i'}).decode()
 		assert.NoError(t, err)
 		assert.Equal(t, []byte{'h', c, 'i'}, r)
 	}

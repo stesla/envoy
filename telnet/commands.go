@@ -78,3 +78,31 @@ func (c optionByte) String() string {
 	}
 	return fmt.Sprintf("%d", c)
 }
+
+type charsetByte byte
+
+const (
+	charsetRequest = 1 + iota
+	charsetAccepted
+	charsetRejected
+	charsetTTableIs
+	charsetTTableRejected
+	charsetTTableAck
+	charsetTTableNak
+)
+
+func (c charsetByte) String() string {
+	str, ok := map[charsetByte]string{
+		charsetRequest:        "REQUEST",
+		charsetAccepted:       "ACCEPTED",
+		charsetRejected:       "REJECTED",
+		charsetTTableIs:       "TTABLE-IS",
+		charsetTTableRejected: "TTABLE-REJECTED",
+		charsetTTableAck:      "TTABLE-ACK",
+		charsetTTableNak:      "TTABLE-NAK",
+	}[c]
+	if ok {
+		return str
+	}
+	return fmt.Sprintf("%d", c)
+}

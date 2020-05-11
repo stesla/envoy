@@ -3,6 +3,7 @@ package telnet
 import (
 	"io"
 	"net"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -61,8 +62,10 @@ func (c *connection) LogEntry() *log.Entry {
 }
 
 func (c *connection) initializeOptions() {
+	c.telnetProtocol.get(Charset).allow(true, true)
 	c.telnetProtocol.get(EndOfRecord).allow(true, true)
 	c.telnetProtocol.get(SuppressGoAhead).allow(true, true)
+	c.telnetProtocol.get(TransmitBinary).allow(true, true)
 }
 
 func (c *connection) NegotiateOptions() {
@@ -72,5 +75,25 @@ func (c *connection) NegotiateOptions() {
 		c.telnetProtocol.get(EndOfRecord).enableThem()
 		c.telnetProtocol.get(SuppressGoAhead).enableUs()
 		c.telnetProtocol.get(SuppressGoAhead).enableThem()
+		chUs := c.telnetProtocol.get(Charset).enableUs()
+		chThem := c.telnetProtocol.get(Charset).enableThem()
+		go func() {
+			for {
+				select {
+				case opt := <-chThem:
+					if opt.enabledForThem() {
+						c.telnetProtocol.startCharsetSubnegotiation()
+						return
+					}
+				case opt := <-chUs:
+					if opt.enabledForUs() {
+						c.telnetProtocol.startCharsetSubnegotiation()
+						return
+					}
+				case <-time.After(time.Second):
+					return
+				}
+			}
+		}()
 	}
 }

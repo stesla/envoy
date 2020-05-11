@@ -17,7 +17,7 @@ func newOptionMap(s sender) (o *optionMap) {
 func (o *optionMap) get(c byte) (opt *option) {
 	opt, ok := o.m[c]
 	if !ok {
-		opt = &option{s: o.s, code: c}
+		opt = newOption(c, o.s)
 		o.m[c] = opt
 	}
 	return
@@ -31,24 +31,40 @@ func (o *optionMap) merge(m *optionMap) {
 	}
 }
 
+// RFC 1143 - The Q Method of Implementing TELNET Option Negotiation
+
 type option struct {
 	s    sender
 	code byte
 
 	allowUs, allowThem bool
 	us, them           telnetQState
+
+	themchs map[chan option]struct{}
+	uschs   map[chan option]struct{}
+}
+
+func newOption(c byte, s sender) *option {
+	return &option{
+		s:       s,
+		code:    c,
+		themchs: make(map[chan option]struct{}),
+		uschs:   make(map[chan option]struct{}),
+	}
 }
 
 func (o *option) allow(us, them bool) {
 	o.allowUs, o.allowThem = us, them
 }
 
-func (o *option) disableThem() {
+func (o *option) disableThem() <-chan option {
 	o.disable(&o.them, DONT)
+	return o.notifyOfThem()
 }
 
-func (o *option) disableUs() {
+func (o *option) disableUs() <-chan option {
 	o.disable(&o.us, WONT)
+	return o.notifyOfUs()
 }
 
 func (o *option) disable(state *telnetQState, cmd byte) {
@@ -69,12 +85,22 @@ func (o *option) disable(state *telnetQState, cmd byte) {
 	}
 }
 
-func (o *option) enableThem() {
-	o.enable(&o.them, DO)
+func (o *option) enabledForThem() bool {
+	return telnetQYes == o.them
 }
 
-func (o *option) enableUs() {
+func (o *option) enabledForUs() bool {
+	return telnetQYes == o.us
+}
+
+func (o *option) enableThem() <-chan option {
+	o.enable(&o.them, DO)
+	return o.notifyOfThem()
+}
+
+func (o *option) enableUs() <-chan option {
 	o.enable(&o.us, WILL)
+	return o.notifyOfUs()
 }
 
 func (o *option) enable(state *telnetQState, cmd byte) {
@@ -92,6 +118,34 @@ func (o *option) enable(state *telnetQState, cmd byte) {
 		// ignore
 	case telnetQWantYesOpposite:
 		*state = telnetQWantYesEmpty
+	}
+}
+
+func (o *option) notifyOfThem() <-chan option {
+	ch := make(chan option, 1)
+	o.themchs[ch] = struct{}{}
+	return ch
+}
+
+func (o *option) notifyOfUs() <-chan option {
+	ch := make(chan option, 1)
+	o.uschs[ch] = struct{}{}
+	return ch
+}
+
+func (o *option) notify(state *telnetQState) {
+	var m map[chan option]struct{}
+	if state == &o.them {
+		m = o.themchs
+	} else if state == &o.us {
+		m = o.uschs
+	} else {
+		panic("neither us or them")
+	}
+
+	for ch, _ := range m {
+		delete(m, ch)
+		ch <- *o
 	}
 }
 
@@ -124,10 +178,13 @@ func (o *option) receiveEnableRequest(state *telnetQState, allowed bool, accept,
 		// ignore
 	case telnetQWantNoEmpty:
 		*state = telnetQNo
+		o.notify(state)
 	case telnetQWantNoOpposite:
 		*state = telnetQYes
+		o.notify(state)
 	case telnetQWantYesEmpty:
 		*state = telnetQYes
+		o.notify(state)
 	case telnetQWantYesOpposite:
 		*state = telnetQWantNoEmpty
 		o.send(reject, o.code)
@@ -141,15 +198,19 @@ func (o *option) receiveDisableDemand(state *telnetQState, accept, reject byte) 
 	case telnetQYes:
 		*state = telnetQNo
 		o.send(reject, o.code)
+		o.notify(state)
 	case telnetQWantNoEmpty:
 		*state = telnetQNo
+		o.notify(state)
 	case telnetQWantNoOpposite:
 		*state = telnetQWantYesEmpty
 		o.send(accept, o.code)
 	case telnetQWantYesEmpty:
 		*state = telnetQNo
+		o.notify(state)
 	case telnetQWantYesOpposite:
 		*state = telnetQNo
+		o.notify(state)
 	}
 }
 
@@ -171,8 +232,8 @@ const (
 	telnetQWantYesOpposite
 )
 
-func (q telnetQState) String() string {
-	switch q {
+func (telnetQ telnetQState) String() string {
+	switch telnetQ {
 	case telnetQNo:
 		return "No"
 	case telnetQYes:
