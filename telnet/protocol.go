@@ -38,15 +38,7 @@ func (p *telnetProtocol) withFields() *log.Entry {
 	return log.WithFields(p.fields)
 }
 
-func (p *telnetProtocol) sendCommand(cmd ...byte) (err error) {
-	cmd = append([]byte{IAC}, cmd...)
-	if log.IsLevelEnabled(log.DebugLevel) {
-		str := "SENT"
-		for _, c := range cmd {
-			str += " " + command(c).String()
-		}
-		p.withFields().Debug(str)
-	}
+func (p *telnetProtocol) send(cmd ...byte) (err error) {
 	_, err = p.out.Write(cmd)
 	return
 }
@@ -153,24 +145,24 @@ func readOption(cmd byte) readerState {
 	}
 }
 
-type commandSender interface {
-	sendCommand(...byte) error
+type sender interface {
+	send(...byte) error
 }
 
 type optionMap struct {
-	cs commandSender
-	m  map[byte]*option
+	s sender
+	m map[byte]*option
 }
 
-func newOptionMap(cs commandSender) (o *optionMap) {
-	o = &optionMap{cs: cs, m: make(map[byte]*option)}
+func newOptionMap(s sender) (o *optionMap) {
+	o = &optionMap{s: s, m: make(map[byte]*option)}
 	return
 }
 
 func (o *optionMap) get(c byte) (opt *option) {
 	opt, ok := o.m[c]
 	if !ok {
-		opt = &option{cs: o.cs, code: c}
+		opt = &option{s: o.s, code: c}
 		o.m[c] = opt
 	}
 	return
@@ -185,7 +177,7 @@ func (o *optionMap) merge(m *optionMap) {
 }
 
 type option struct {
-	cs   commandSender
+	s    sender
 	code byte
 
 	allowUs, allowThem bool
@@ -210,7 +202,7 @@ func (o *option) disable(state *telnetQState, cmd byte) {
 		// ignore
 	case telnetQYes:
 		*state = telnetQWantNoEmpty
-		o.cs.sendCommand(cmd, o.code)
+		o.send(cmd, o.code)
 	case telnetQWantNoEmpty:
 		// ignore
 	case telnetQWantNoOpposite:
@@ -234,7 +226,7 @@ func (o *option) enable(state *telnetQState, cmd byte) {
 	switch *state {
 	case telnetQNo:
 		*state = telnetQWantYesEmpty
-		o.cs.sendCommand(cmd, o.code)
+		o.send(cmd, o.code)
 	case telnetQYes:
 		// ignore
 	case telnetQWantNoEmpty:
@@ -266,9 +258,9 @@ func (o *option) receiveEnableRequest(state *telnetQState, allowed bool, accept,
 	case telnetQNo:
 		if allowed {
 			*state = telnetQYes
-			o.cs.sendCommand(accept, o.code)
+			o.send(accept, o.code)
 		} else {
-			o.cs.sendCommand(reject, o.code)
+			o.send(reject, o.code)
 		}
 	case telnetQYes:
 		// ignore
@@ -280,7 +272,7 @@ func (o *option) receiveEnableRequest(state *telnetQState, allowed bool, accept,
 		*state = telnetQYes
 	case telnetQWantYesOpposite:
 		*state = telnetQWantNoEmpty
-		o.cs.sendCommand(reject, o.code)
+		o.send(reject, o.code)
 	}
 }
 
@@ -290,17 +282,24 @@ func (o *option) receiveDisableDemand(state *telnetQState, accept, reject byte) 
 		// ignore
 	case telnetQYes:
 		*state = telnetQNo
-		o.cs.sendCommand(reject, o.code)
+		o.send(reject, o.code)
 	case telnetQWantNoEmpty:
 		*state = telnetQNo
 	case telnetQWantNoOpposite:
 		*state = telnetQWantYesEmpty
-		o.cs.sendCommand(accept, o.code)
+		o.send(accept, o.code)
 	case telnetQWantYesEmpty:
 		*state = telnetQNo
 	case telnetQWantYesOpposite:
 		*state = telnetQNo
 	}
+}
+
+func (o *option) send(cmd, option byte) {
+	if p, ok := o.s.(*telnetProtocol); ok {
+		p.withFields().Debugf("SENT IAC %s %s", command(cmd), command(option))
+	}
+	o.s.send(IAC, cmd, option)
 }
 
 type telnetQState int
