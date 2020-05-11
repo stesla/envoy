@@ -18,7 +18,6 @@ const (
 type Conn interface {
 	io.ReadWriteCloser
 	Conn() net.Conn
-	SetEncoding(Encoding)
 	NegotiateOptions()
 
 	LogEntry() *log.Entry
@@ -50,7 +49,8 @@ func Wrap(fields log.Fields, conn net.Conn) Conn {
 func newConnection(fields log.Fields, r io.Reader, w io.Writer) *connection {
 	c := &connection{p: newTelnetProtocol(fields, r, w)}
 	c.initializeOptions()
-	c.SetEncoding(EncodingAscii)
+	c.Reader = newAsciiDecoder(c.p)
+	c.Writer = newAsciiEncoder(c.p)
 	return c
 }
 
@@ -60,18 +60,6 @@ func (c *connection) Close() error {
 
 func (c *connection) Conn() net.Conn {
 	return c.conn
-}
-
-func (c *connection) SetEncoding(e Encoding) {
-	switch e {
-	case EncodingAscii:
-		c.Reader = newAsciiDecoder(c.p)
-		c.Writer = newAsciiEncoder(c.p)
-	case EncodingUTF8:
-		c.Reader, c.Writer = c.p, c.p
-	default:
-		panic("invalid encoding")
-	}
 }
 
 func (c *connection) LogEntry() *log.Entry {
@@ -99,13 +87,6 @@ func (c invalidCodepointError) Error() string {
 	return fmt.Sprintf("invalid codepoint for current encoding: %c", c)
 }
 
-type Encoding int
-
-const (
-	EncodingAscii Encoding = 0 + iota
-	EncodingUTF8
-)
-
 type asciiDecoder struct {
 	r io.Reader
 }
@@ -118,13 +99,12 @@ func (d *asciiDecoder) Read(out []byte) (int, error) {
 	buf := make([]byte, len(out))
 	nr, er := d.r.Read(buf)
 
-	str := string(buf[:nr])
 	n := 0
-	for _, c := range str {
+	for _, c := range buf[:nr] {
 		if c < 128 {
 			out[n] = byte(c)
 		} else {
-			out[n] = '?'
+			out[n] = '\x1a'
 		}
 		n++
 	}
