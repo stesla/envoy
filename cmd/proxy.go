@@ -96,7 +96,7 @@ func startsession(conn telnet.Conn) {
 }
 
 type addClientReq struct {
-	c  io.ReadWriteCloser
+	c  *client
 	ch chan error
 }
 
@@ -127,7 +127,7 @@ type proxy struct {
 	writeClient chan writereq
 }
 
-func (p *proxy) AddClient(c io.ReadWriteCloser) error {
+func (p *proxy) AddClient(c *client) error {
 	ch := make(chan error)
 	p.addClient <- addClientReq{c, ch}
 	return <-ch
@@ -182,6 +182,7 @@ func (p *proxy) loop() {
 	var history = newHistory()
 	clients[history] = struct{}{}
 
+	var awaitClientNegotiation = make(chan *client, 1)
 	var server telnet.Conn
 	var readServer chan struct{}
 	var readServerDone chan struct{}
@@ -203,6 +204,10 @@ func (p *proxy) loop() {
 			server.LogEntry().Println("disconnected")
 			return
 
+		case client := <-awaitClientNegotiation:
+			clients[client] = struct{}{}
+			history.WriteTo(client)
+
 		case req := <-p.addClient:
 			if server == nil {
 				conn, logfile, err := p.connect()
@@ -221,15 +226,20 @@ func (p *proxy) loop() {
 					}()
 				}
 			}
-			close(req.ch)
-			clients[req.c] = struct{}{}
-			history.WriteTo(req.c)
+			go func(client *client) {
+				if await := server.AwaitNegotiation(); await != nil {
+					<-await
+				}
+				if await := client.AwaitNegotiation(); await != nil {
+					<-await
+				}
+				awaitClientNegotiation <- client
+			}(req.c)
 			go func() {
 				io.Copy(p.ServerWriter(), req.c)
-				if c, ok := req.c.(*client); ok {
-					c.LogEntry().Println("disconnected")
-				}
+				req.c.LogEntry().Println("disconnected")
 			}()
+			close(req.ch)
 
 		case req := <-writeClient:
 			for c, _ := range clients {

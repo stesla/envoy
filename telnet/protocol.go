@@ -3,6 +3,7 @@ package telnet
 import (
 	"bytes"
 	"io"
+	"sync"
 
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/text/encoding"
@@ -11,17 +12,18 @@ import (
 )
 
 type telnetProtocol struct {
+	io.Reader
+	io.Writer
+	*optionMap
+	sync.Mutex
+
 	ctype  ConnType
 	fields log.Fields
 	in     io.Reader
 	out    io.Writer
 	state  decodeState
 	enc    encoding.Encoding
-
-	io.Reader
-	io.Writer
-
-	*optionMap
+	finish chan struct{}
 }
 
 func newTelnetProtocol(fields log.Fields, r io.Reader, w io.Writer) *telnetProtocol {
@@ -30,11 +32,42 @@ func newTelnetProtocol(fields log.Fields, r io.Reader, w io.Writer) *telnetProto
 		in:     r,
 		out:    w,
 		state:  decodeByte,
+		finish: make(chan struct{}),
 	}
 	p.ctype = fields["type"].(ConnType)
 	p.optionMap = newOptionMap(p)
 	p.setEncoding(ASCII)
 	return p
+}
+
+func (p *telnetProtocol) AwaitNegotiation() <-chan struct{} {
+	p.Lock()
+	defer p.Unlock()
+	return p.finish
+}
+
+func (p *telnetProtocol) finished() {
+	p.Lock()
+	defer p.Unlock()
+	if p.finish != nil {
+		close(p.finish)
+		p.finish = nil
+
+	}
+}
+
+func (p *telnetProtocol) finishCharsetSubnegotiation(enc encoding.Encoding) {
+	p.setEncoding(enc)
+
+	opt := p.get(TransmitBinary)
+	if enc == ASCII {
+		opt.disableUs()
+		opt.disableThem()
+	} else {
+		opt.enableUs()
+		opt.enableThem()
+	}
+	p.finished()
 }
 
 func (p *telnetProtocol) handleCharsetSubnegotiation(buf []byte) {
@@ -50,8 +83,7 @@ func (p *telnetProtocol) handleCharsetSubnegotiation(buf []byte) {
 		switch {
 		case p.ctype == ClientType:
 			if string(buf) == "UTF-8" {
-				p.setEncoding(unicode.UTF8)
-				p.setBinaryForEncoding(unicode.UTF8)
+				p.finishCharsetSubnegotiation(unicode.UTF8)
 				return
 			}
 			fallthrough
@@ -81,17 +113,17 @@ func (p *telnetProtocol) handleCharsetSubnegotiation(buf []byte) {
 		cmd = append(cmd, []byte(charset)...)
 		cmd = append(cmd, IAC, SE)
 		p.send(cmd...)
-		p.setEncoding(encoding)
-		p.setBinaryForEncoding(encoding)
+		p.finishCharsetSubnegotiation(encoding)
 
 	case charsetAccepted:
 		_, encoding := p.selectEncoding([][]byte{buf})
 		if encoding != nil {
-			p.setEncoding(encoding)
-			p.setBinaryForEncoding(encoding)
+			p.finishCharsetSubnegotiation(encoding)
 		}
 
 	case charsetRejected:
+		p.finished()
+
 	case charsetTTableIs:
 	case charsetTTableRejected:
 	case charsetTTableAck:
@@ -132,17 +164,6 @@ func (p *telnetProtocol) selectEncoding(names [][]byte) (charset []byte, enc enc
 func (p *telnetProtocol) sendCharsetRejected() {
 	p.withFields().Debug("SENT IAC SB CHARSET REJECTED IAC SE")
 	p.send(IAC, SB, Charset, charsetRejected, IAC, SE)
-}
-
-func (p *telnetProtocol) setBinaryForEncoding(enc encoding.Encoding) {
-	opt := p.get(TransmitBinary)
-	if enc == ASCII {
-		opt.disableUs()
-		opt.disableThem()
-	} else {
-		opt.enableUs()
-		opt.enableThem()
-	}
 }
 
 func (p *telnetProtocol) setEncoding(enc encoding.Encoding) {
