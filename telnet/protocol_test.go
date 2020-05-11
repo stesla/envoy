@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"golang.org/x/text/encoding"
+	"golang.org/x/text/transform"
 )
 
 func processBytes(b []byte) (r, w []byte, _ error) {
@@ -15,11 +17,12 @@ func processBytes(b []byte) (r, w []byte, _ error) {
 func processBytesWithOptions(b []byte, opts *optionMap) (r, w []byte, err error) {
 	in := bytes.NewBuffer(b)
 	var out bytes.Buffer
-	protocol := newTelnetProtocol(testLogFields, in, &out)
-	protocol.optionMap.merge(opts)
+	p := newTelnetProtocol(testLogFields, in, &out)
+	p.setEncoding(Raw)
+	p.optionMap.merge(opts)
 
 	r = make([]byte, len(b)) // At most we'll read all the bytes
-	nr, er := protocol.Read(r)
+	nr, er := p.Read(r)
 	if er != nil {
 		err = fmt.Errorf("Read: %q", er)
 	}
@@ -50,7 +53,7 @@ func TestStripTelnetCommands(t *testing.T) {
 func TestEscapedIAC(t *testing.T) {
 	r, _, err := processBytes([]byte{'h', IAC, IAC, 'i'})
 	assert.NoError(t, err)
-	assert.Equal(t, []byte("h\xffi"), r)
+	assert.Equal(t, []byte{'h', IAC, 'i'}, r)
 }
 
 func TestCRLFIsNewline(t *testing.T) {
@@ -68,7 +71,7 @@ func TestCRNULIsCarriageReturn(t *testing.T) {
 func TestCRIsOtherwiseIgnored(t *testing.T) {
 	const (
 		minByte byte = 0
-		maxByte      = ^minByte
+		maxByte      = 127
 	)
 	for c := minByte; c < maxByte; c++ {
 		if c == '\x00' || c == '\n' {
@@ -127,6 +130,7 @@ func TestErrorReading(t *testing.T) {
 func sendBytes(in []byte) []byte {
 	var r, w bytes.Buffer
 	p := newTelnetProtocol(testLogFields, &r, &w)
+	p.setEncoding(Raw)
 	p.Write(in)
 	return w.Bytes()
 }
@@ -354,3 +358,30 @@ func TestQMethodDisableUs(t *testing.T) {
 		}
 	}
 }
+
+/***
+** Raw Encoding
+***/
+
+var Raw encoding.Encoding = &rawEncoding{}
+
+type rawEncoding struct{}
+
+func (r *rawEncoding) NewDecoder() *encoding.Decoder {
+	return &encoding.Decoder{Transformer: r}
+}
+
+func (r *rawEncoding) NewEncoder() *encoding.Encoder {
+	return &encoding.Encoder{Transformer: r}
+}
+
+func (r *rawEncoding) Transform(dst, src []byte, atEOF bool) (nDst, nSrc int, err error) {
+	n := copy(dst, src)
+	nDst, nSrc = n, n
+	if nSrc < len(src) {
+		err = transform.ErrShortDst
+	}
+	return
+}
+
+func (r *rawEncoding) Reset() {}

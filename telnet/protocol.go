@@ -4,6 +4,8 @@ import (
 	"io"
 
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/text/encoding"
+	"golang.org/x/text/transform"
 )
 
 type telnetProtocol struct {
@@ -12,6 +14,9 @@ type telnetProtocol struct {
 	in     io.Reader
 	out    io.Writer
 	state  readerState
+
+	io.Reader
+	io.Writer
 
 	*optionMap
 }
@@ -25,45 +30,12 @@ func newTelnetProtocol(fields log.Fields, r io.Reader, w io.Writer) *telnetProto
 	}
 	p.ctype = fields["type"].(ConnType)
 	p.optionMap = newOptionMap(p)
+	p.setEncoding(ASCII)
 	return p
 }
 
 func (p *telnetProtocol) withFields() *log.Entry {
 	return log.WithFields(p.fields)
-}
-
-func (p *telnetProtocol) Read(b []byte) (n int, err error) {
-	buf := make([]byte, len(b))
-	nr, err := p.in.Read(buf)
-	buf = buf[:nr]
-	for len(buf) > 0 && n < len(b) {
-		var ok bool
-		var c byte
-		p.state, c, ok = p.state(p, buf[0])
-		if ok {
-			b[n] = c
-			n++
-		}
-		buf = buf[1:]
-	}
-	return n, err
-}
-
-func (p *telnetProtocol) Write(b []byte) (n int, err error) {
-	for n = 0; len(b) > 0 && err == nil; n++ {
-		switch b[0] {
-		case IAC:
-			err = p.sendCommand(IAC)
-		case '\n':
-			_, err = p.out.Write([]byte("\r\n"))
-		case '\r':
-			_, err = p.out.Write([]byte("\r\x00"))
-		default:
-			_, err = p.out.Write(b[0:1])
-		}
-		b = b[1:]
-	}
-	return
 }
 
 func (p *telnetProtocol) sendCommand(cmd ...byte) (err error) {
@@ -76,6 +48,68 @@ func (p *telnetProtocol) sendCommand(cmd ...byte) (err error) {
 		p.withFields().Debug(str)
 	}
 	_, err = p.out.Write(cmd)
+	return
+}
+
+func (p *telnetProtocol) setEncoding(enc encoding.Encoding) {
+	p.Reader = transform.NewReader(p.in, transform.Chain(&telnetDecoder{p: p}, enc.NewDecoder()))
+	p.Writer = transform.NewWriter(p.out, transform.Chain(&telnetEncoder{p: p}, enc.NewEncoder()))
+}
+
+type telnetDecoder struct {
+	p *telnetProtocol
+}
+
+func (*telnetDecoder) Reset() {}
+
+func (d *telnetDecoder) Transform(dst, src []byte, _ bool) (nDst, nSrc int, err error) {
+	telnet := d.p
+	for i, b := range src {
+		if nDst >= len(dst) {
+			err = transform.ErrShortDst
+			break
+		}
+
+		var c byte
+		var ok bool
+		telnet.state, c, ok = telnet.state(telnet, b)
+		if ok {
+			dst[nDst] = c
+			nDst++
+		}
+
+		nSrc = i + 1
+	}
+	return
+}
+
+type telnetEncoder struct {
+	p *telnetProtocol
+}
+
+func (*telnetEncoder) Reset() {}
+
+func (d *telnetEncoder) Transform(dst, src []byte, _ bool) (nDst, nSrc int, err error) {
+	for i, b := range src {
+		var buf []byte
+		switch b {
+		case IAC:
+			buf = []byte{IAC, IAC}
+		case '\n':
+			buf = []byte("\r\n")
+		case '\r':
+			buf = []byte("\r\x00")
+		default:
+			buf = []byte{b}
+		}
+		if nDst+len(buf) < len(dst) {
+			nDst += copy(dst[nDst:], buf)
+		} else {
+			err = transform.ErrShortDst
+			break
+		}
+		nSrc = i + 1
+	}
 	return
 }
 

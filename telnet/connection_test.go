@@ -61,9 +61,8 @@ func TestConnWriteNonAscii(t *testing.T) {
 	var w bytes.Buffer
 	c := newConnection(testLogFields, nil, &w)
 
-	nw, ew := c.Write([]byte("abc»123"))
-	if assert.Error(t, ew) {
-		assert.Equal(t, 3, nw)
-		assert.Equal(t, "abc", w.String())
-	}
+	nw, ew := c.Write([]byte("abc\x80123"))
+	assert.NoError(t, ew)
+	assert.Equal(t, 7, nw)
+	assert.Equal(t, "abc\x1A123", w.String())
 }

@@ -1,7 +1,6 @@
 package telnet
 
 import (
-	"fmt"
 	"io"
 	"net"
 
@@ -24,11 +23,8 @@ type Conn interface {
 }
 
 type connection struct {
-	io.Reader
-	io.Writer
-
 	conn net.Conn
-	p    *telnetProtocol
+	*telnetProtocol
 }
 
 func Dial(addr string) (Conn, error) {
@@ -47,10 +43,8 @@ func Wrap(fields log.Fields, conn net.Conn) Conn {
 }
 
 func newConnection(fields log.Fields, r io.Reader, w io.Writer) *connection {
-	c := &connection{p: newTelnetProtocol(fields, r, w)}
+	c := &connection{telnetProtocol: newTelnetProtocol(fields, r, w)}
 	c.initializeOptions()
-	c.Reader = newAsciiDecoder(c.p)
-	c.Writer = newAsciiEncoder(c.p)
 	return c
 }
 
@@ -63,75 +57,20 @@ func (c *connection) Conn() net.Conn {
 }
 
 func (c *connection) LogEntry() *log.Entry {
-	return c.p.withFields()
+	return c.telnetProtocol.withFields()
 }
 
 func (c *connection) initializeOptions() {
-	c.p.get(EndOfRecord).allow(true, true)
-	c.p.get(SuppressGoAhead).allow(true, true)
+	c.telnetProtocol.get(EndOfRecord).allow(true, true)
+	c.telnetProtocol.get(SuppressGoAhead).allow(true, true)
 }
 
 func (c *connection) NegotiateOptions() {
-	switch c.p.ctype {
+	switch c.telnetProtocol.ctype {
 	case ClientType:
-		c.p.get(EndOfRecord).enableUs()
-		c.p.get(EndOfRecord).enableThem()
-		c.p.get(SuppressGoAhead).enableUs()
-		c.p.get(SuppressGoAhead).enableThem()
+		c.telnetProtocol.get(EndOfRecord).enableUs()
+		c.telnetProtocol.get(EndOfRecord).enableThem()
+		c.telnetProtocol.get(SuppressGoAhead).enableUs()
+		c.telnetProtocol.get(SuppressGoAhead).enableThem()
 	}
-}
-
-type invalidCodepointError byte
-
-func (c invalidCodepointError) Error() string {
-	return fmt.Sprintf("invalid codepoint for current encoding: %c", c)
-}
-
-type asciiDecoder struct {
-	r io.Reader
-}
-
-func newAsciiDecoder(r io.Reader) io.Reader {
-	return &asciiDecoder{r: r}
-}
-
-func (d *asciiDecoder) Read(out []byte) (int, error) {
-	buf := make([]byte, len(out))
-	nr, er := d.r.Read(buf)
-
-	n := 0
-	for _, c := range buf[:nr] {
-		if c < 128 {
-			out[n] = byte(c)
-		} else {
-			out[n] = '\x1a'
-		}
-		n++
-	}
-	return n, er
-}
-
-type asciiEncoder struct {
-	w io.Writer
-}
-
-func newAsciiEncoder(w io.Writer) io.Writer {
-	return &asciiEncoder{w}
-}
-
-func (e *asciiEncoder) Write(in []byte) (n int, err error) {
-	out := make([]byte, len(in))
-	for _, b := range in {
-		if b > 127 {
-			err = invalidCodepointError(b)
-			break
-		}
-		out[n] = b
-		n++
-	}
-	nw, ew := e.w.Write(out[:n])
-	if ew != nil {
-		return nw, ew
-	}
-	return nw, err
 }
