@@ -112,19 +112,12 @@ func (p *proxy) ServerWriter() io.Writer {
 	return &writereqWriter{p.writeServer}
 }
 
-func (p *proxy) connect() (conn telnet.Conn, log *os.File, err error) {
+func (p *proxy) connect() (conn telnet.Conn, err error) {
 	conn, err = telnet.Dial(p.Address)
 	if err != nil {
 		return
 	}
 	conn.LogEntry().Println("connected")
-
-	if p.Log != "" {
-		log, err = p.openLog()
-		if err != nil {
-			return
-		}
-	}
 
 	if p.OnConnect != "" {
 		_, err = fmt.Fprintln(conn, p.OnConnect)
@@ -148,6 +141,7 @@ func (p *proxy) loop() {
 	clients[history] = struct{}{}
 
 	var awaitClientNegotiation = make(chan *client, 1)
+	var logFile *os.File
 	var server telnet.Conn
 	var readServer chan struct{}
 	var readServerDone chan struct{}
@@ -165,6 +159,7 @@ func (p *proxy) loop() {
 			for c, _ := range clients {
 				deleteClient(c)
 			}
+			logFile.Close()
 			ch <- server.Close()
 			server.LogEntry().Println("disconnected")
 			return
@@ -175,21 +170,20 @@ func (p *proxy) loop() {
 
 		case req := <-p.addClient:
 			if server == nil {
-				conn, logfile, err := p.connect()
+				var err error
+				server, err = p.connect()
 				if err != nil {
 					req.ch <- err
 					break
 				}
-				conn.NegotiateOptions()
-				server = conn
-				if logfile != nil {
-					logr, logw := io.Pipe()
-					clients[logw] = struct{}{}
-					go func() {
-						defer logfile.Close()
-						io.Copy(logfile, noTelnet(logr))
-					}()
+				if p.Log != "" {
+					logFile, err = p.openLog()
+					if err != nil {
+						req.ch <- err
+						break
+					}
 				}
+				server.NegotiateOptions()
 			}
 			go func(client *client) {
 				if await := server.AwaitNegotiation(); await != nil {
@@ -212,6 +206,9 @@ func (p *proxy) loop() {
 				if ew != nil || nw != len(req.buf) {
 					deleteClient(c)
 				}
+			}
+			if logFile != nil {
+				logFile.Write(req.buf)
 			}
 			req.ch <- ioresult{len(req.buf), nil}
 
