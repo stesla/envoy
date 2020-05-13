@@ -145,8 +145,7 @@ func (p *proxy) loop() {
 	var server telnet.Conn
 	var readServer chan struct{}
 	var readServerDone chan struct{}
-	var writeClient = p.writeClient
-	var writeServer = p.writeServer
+	var writeServer chan writereq
 	var writeServerDone chan struct{}
 	for {
 		if server != nil && readServerDone == nil {
@@ -184,6 +183,7 @@ func (p *proxy) loop() {
 					}
 				}
 				server.NegotiateOptions()
+				writeServer = p.writeServer
 			}
 			go func(client *client) {
 				if await := server.AwaitNegotiation(); await != nil {
@@ -200,7 +200,7 @@ func (p *proxy) loop() {
 			}()
 			close(req.ch)
 
-		case req := <-writeClient:
+		case req := <-p.writeClient:
 			for c, _ := range clients {
 				nw, ew := c.Write(req.buf)
 				if ew != nil || nw != len(req.buf) {
