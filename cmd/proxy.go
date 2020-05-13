@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bufio"
+	"bytes"
 	"envoy/telnet"
 	"fmt"
 	"io"
@@ -322,16 +323,41 @@ func findProxyByName(name string) (*proxy, bool) {
 	return p, true
 }
 
+const (
+	defaultHistorySize = 40 * 1024 // about 512 lines of text
+	defaultScrollSize  = 10 * 1024 // about 128 lines of text
+)
+
 type history struct {
-	buf []byte
+	n, s int
+	buf  []byte
 }
 
 func newHistory() *history {
-	return &history{make([]byte, 0, 2*1024*1024)}
+	return newHistoryWithSize(defaultHistorySize, defaultScrollSize)
+}
+
+func newHistoryWithSize(size, scroll int) *history {
+	return &history{n: size, s: scroll, buf: make([]byte, 0, size)}
 }
 
 func (h *history) Write(p []byte) (int, error) {
-	h.buf = append(h.buf, p...)
+	if l := len(h.buf) + len(p); l <= h.n {
+		// it fits, no problem
+		h.buf = append(h.buf, p...)
+	} else {
+		for l > h.n {
+			l -= h.s
+		}
+		if n := l - len(p); n <= 0 {
+			h.buf = p[len(p)-l:]
+		} else {
+			h.buf = append(h.buf[len(h.buf)-n:], p...)
+		}
+		if i := bytes.IndexByte(h.buf, '\n'); i >= 0 {
+			h.buf = h.buf[i+1:]
+		}
+	}
 	return len(p), nil
 }
 
