@@ -354,7 +354,7 @@ func (h *history) Write(p []byte) (int, error) {
 		} else {
 			h.buf = append(h.buf[len(h.buf)-n:], p...)
 		}
-		if i := bytes.IndexByte(h.buf, '\n'); i >= 0 {
+		if i := bytes.IndexRune(h.buf, '\n'); i >= 0 {
 			h.buf = h.buf[i+1:]
 		}
 	}
