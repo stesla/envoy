@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -28,16 +29,10 @@ func TestHistoryScrolls(t *testing.T) {
 }
 
 func TestRemovesFirstLine(t *testing.T) {
-	// We are scrolling the history by bytes, so it's very likely that the
-	// first line in the buffer is actually a partial line. Trim it off.
-	// But only trim it off if the buffer got scrolled.
-
-	// order matetrs here
-	h := newHistoryWithSize(10, 5)
-	h.Write([]byte("foo\nbar"))
-	assert.Equal(t, "foo\nbar", string(h.buf))
-
-	h.Write([]byte("\nquux\nxyzzy"))
-	assert.Equal(t, "xyzzy", string(h.buf))
-
+	var buf bytes.Buffer
+	h := &history{buf: []byte("foo\nbar\nbaz")}
+	nw, ew := h.WriteTo(&buf)
+	assert.NoError(t, ew)
+	assert.Equal(t, int64(7), nw)
+	assert.Equal(t, "bar\nbaz", buf.String())
 }

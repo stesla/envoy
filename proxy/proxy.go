@@ -342,15 +342,16 @@ func (h *history) Write(p []byte) (int, error) {
 		} else {
 			h.buf = append(h.buf[len(h.buf)-n:], p...)
 		}
-		if i := bytes.IndexRune(h.buf, '\n'); i >= 0 {
-			h.buf = h.buf[i+1:]
-		}
 	}
 	return len(p), nil
 }
 
 func (h *history) WriteTo(w io.Writer) (int64, error) {
-	n, err := w.Write(h.buf)
+	var buf []byte
+	if i := bytes.IndexRune(h.buf, '\n'); i >= 0 {
+		buf = h.buf[i+1:]
+	}
+	n, err := w.Write(buf)
 	return int64(n), err
 }
 
