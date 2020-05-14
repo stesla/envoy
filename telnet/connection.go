@@ -70,31 +70,34 @@ func (c *connection) initializeOptions() {
 }
 
 func (c *connection) NegotiateOptions() {
+	var chThem, chUs <-chan option
 	switch c.telnetProtocol.ctype {
 	case ClientType:
-		c.telnetProtocol.get(EndOfRecord).enableUs()
 		c.telnetProtocol.get(EndOfRecord).enableThem()
-		c.telnetProtocol.get(SuppressGoAhead).enableUs()
+		c.telnetProtocol.get(EndOfRecord).enableUs()
 		c.telnetProtocol.get(SuppressGoAhead).enableThem()
-		chUs := c.telnetProtocol.get(Charset).enableUs()
-		chThem := c.telnetProtocol.get(Charset).enableThem()
-		go func() {
-			for {
-				select {
-				case opt := <-chThem:
-					if opt.enabledForThem() {
-						c.telnetProtocol.startCharsetSubnegotiation()
-						return
-					}
-				case opt := <-chUs:
-					if opt.enabledForUs() {
-						c.telnetProtocol.startCharsetSubnegotiation()
-						return
-					}
-				case <-time.After(time.Second):
+		c.telnetProtocol.get(SuppressGoAhead).enableUs()
+		fallthrough
+	case ServerType:
+		chThem = c.telnetProtocol.get(Charset).enableThem()
+		chUs = c.telnetProtocol.get(Charset).enableUs()
+	}
+	go func() {
+		for {
+			select {
+			case opt := <-chThem:
+				if opt.enabledForThem() {
+					c.telnetProtocol.startCharsetSubnegotiation()
 					return
 				}
+			case opt := <-chUs:
+				if opt.enabledForUs() {
+					c.telnetProtocol.startCharsetSubnegotiation()
+					return
+				}
+			case <-time.After(time.Second):
+				return
 			}
-		}()
-	}
+		}
+	}()
 }
