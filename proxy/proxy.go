@@ -23,6 +23,22 @@ Welcome to Envoy
 ------------------------------------------------------------------------
 `
 
+func CloseAll() {
+	proxies.Range(func(key, value interface{}) bool {
+		log.Infof("closing proxy '%v'", key)
+		value.(*proxy).Close()
+		return true
+	})
+}
+
+func ReopenLogs() {
+	proxies.Range(func(key, value interface{}) bool {
+		log.Infof("reopening log for '%v'", key)
+		value.(*proxy).ReopenLog()
+		return true
+	})
+}
+
 func StartSession(conn telnet.Conn) {
 	conn.LogEntry().Println("connected")
 	conn.NegotiateOptions()
@@ -88,6 +104,7 @@ type proxy struct {
 
 	addClient   chan addClientReq
 	close       chan chan error
+	reopenLog   chan chan error
 	writeServer chan writereq
 	writeClient chan writereq
 }
@@ -105,6 +122,12 @@ func (p *proxy) ClientWriter() io.Writer {
 func (p *proxy) Close() error {
 	ch := make(chan error)
 	p.close <- ch
+	return <-ch
+}
+
+func (p *proxy) ReopenLog() error {
+	ch := make(chan error)
+	p.reopenLog <- ch
 	return <-ch
 }
 
@@ -141,7 +164,7 @@ func (p *proxy) loop() {
 	clients[history] = struct{}{}
 
 	var awaitClientNegotiation = make(chan *client, 1)
-	var logFile *os.File
+	var logFile *logFile
 	var server telnet.Conn
 	var readServer chan struct{}
 	var readServerDone chan struct{}
@@ -163,6 +186,14 @@ func (p *proxy) loop() {
 			server.LogEntry().Println("disconnected")
 			return
 
+		case ch := <-p.reopenLog:
+			var err error
+			if logFile != nil {
+				logFile.Close()
+				logFile, err = openLogFile(p.Log)
+			}
+			ch <- err
+
 		case client := <-awaitClientNegotiation:
 			clients[client] = struct{}{}
 			history.WriteTo(client)
@@ -176,7 +207,7 @@ func (p *proxy) loop() {
 					break
 				}
 				if p.Log != "" {
-					logFile, err = p.openLog()
+					logFile, err = openLogFile(p.Log)
 					if err != nil {
 						req.ch <- err
 						break
@@ -245,14 +276,7 @@ func (p *proxy) loop() {
 	}
 }
 
-func (p *proxy) openLog() (*os.File, error) {
-	t := time.Now()
-	filename, err := homedir.Expand(t.Format(p.Log))
-	if err != nil {
-		return nil, err
-	}
-	return os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-}
+const logSepFormat = "2006-01-02 15:04:05 -0700 MST"
 
 var proxies = &sync.Map{}
 
@@ -275,7 +299,8 @@ func findProxyByName(name string) (*proxy, bool) {
 		OnConnect: h["onconnect"],
 
 		addClient:   make(chan addClientReq),
-		close:       make(chan chan error),
+		close:       make(chan chan error, 1),
+		reopenLog:   make(chan chan error),
 		writeServer: make(chan writereq),
 		writeClient: make(chan writereq),
 	}
@@ -325,6 +350,35 @@ func (h *history) Write(p []byte) (int, error) {
 func (h *history) WriteTo(w io.Writer) (int64, error) {
 	n, err := w.Write(h.buf)
 	return int64(n), err
+}
+
+type logFile struct {
+	name string
+	*os.File
+}
+
+func openLogFile(name string) (*logFile, error) {
+	t := time.Now()
+	filename, err := homedir.Expand(t.Format(name))
+	if err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Fprintf(f, "--------------- opened - %s ---------------\n", t.Format(logSepFormat))
+	return &logFile{name: name, File: f}, nil
+}
+
+func (l *logFile) Close() error {
+	if l.File == nil {
+		return nil
+	}
+	t := time.Now()
+	fmt.Fprintf(l.File, "--------------- closed - %s ---------------\n", t.Format(logSepFormat))
+	l.File.Sync()
+	return l.File.Close()
 }
 
 type telnetFilter struct {
