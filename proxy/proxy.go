@@ -181,7 +181,9 @@ func (p *proxy) loop() {
 			for c, _ := range clients {
 				deleteClient(c)
 			}
-			logFile.Close()
+			if logFile != nil {
+				logFile.Close()
+			}
 			ch <- server.Close()
 			server.LogEntry().Println("disconnected")
 			return
