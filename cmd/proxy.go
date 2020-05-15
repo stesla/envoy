@@ -14,20 +14,20 @@ import (
 )
 
 var (
-	startCmd = &cobra.Command{
-		Use:   "start",
+	proxyCmd = &cobra.Command{
+		Use:   "proxy",
 		Short: "start proxy server",
-		Run:   start,
+		Run:   startProxy,
 	}
 )
 
 func init() {
-	startCmd.PersistentFlags().StringP("listen", "l", ":4001", "address to listen on")
-	viper.BindPFlag("listen", startCmd.PersistentFlags().Lookup("listen"))
-	rootCmd.AddCommand(startCmd)
+	proxyCmd.PersistentFlags().StringP("listen", "l", ":4001", "address to listen on")
+	viper.BindPFlag("listen", proxyCmd.PersistentFlags().Lookup("listen"))
+	rootCmd.AddCommand(proxyCmd)
 }
 
-func start(cmd *cobra.Command, args []string) {
+func startProxy(cmd *cobra.Command, args []string) {
 	addr := viper.GetString("listen")
 	log.Printf("envoy (pid %d) listening on '%s'", os.Getpid(), addr)
 	l, err := net.Listen("tcp", addr)
