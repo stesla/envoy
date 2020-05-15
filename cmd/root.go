@@ -46,8 +46,10 @@ func initConfig() {
 
 	viper.AutomaticEnv()
 
-	if err := viper.ReadInConfig(); err == nil {
-		log.Printf("loaded config at '%s'", viper.ConfigFileUsed())
+	if err := viper.ReadInConfig(); err != nil {
+		log.Fatalln(err)
+	} else {
+		log.Printf("loaded config at %q", viper.ConfigFileUsed())
 	}
 
 	viper.WatchConfig()
@@ -59,7 +61,7 @@ func initConfig() {
 	if str := viper.GetString("loglevel"); str != "" {
 		level, err := log.ParseLevel(str)
 		if err != nil {
-			log.Fatal("error parsing loglevel: ", err)
+			log.Fatalln("error parsing loglevel:", err)
 		}
 		log.SetLevel(level)
 		log.Println("loglevel set to", level)
