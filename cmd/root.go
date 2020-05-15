@@ -3,8 +3,8 @@ package cmd
 import (
 	"net/http"
 	_ "net/http/pprof"
+	"os/user"
 
-	homedir "github.com/mitchellh/go-homedir"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -32,14 +32,17 @@ func init() {
 }
 
 func initConfig() {
+	var err error
+	u, err := user.Current()
+	if err != nil {
+		log.Fatalln(err)
+	}
+	viper.Set("user.home", u.HomeDir)
+
 	if cfgFile != "" {
 		viper.SetConfigFile(cfgFile)
 	} else {
-		home, err := homedir.Dir()
-		if err != nil {
-			log.Fatalln("error finding home directory:", err)
-		}
-		viper.AddConfigPath(home)
+		viper.AddConfigPath(u.HomeDir)
 		viper.SetConfigName(".envoy.yaml")
 		viper.SetConfigType("yaml")
 	}

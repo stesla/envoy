@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	homedir "github.com/mitchellh/go-homedir"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 )
@@ -57,8 +56,8 @@ func StartSession(conn telnet.Conn) {
 		conn.Close()
 		return
 	}
-	proxyName := strings.ToLower(words[1])
-	proxy, found := findProxyByName(proxyName)
+	key := strings.ToLower(words[1])
+	proxy, found := findProxyByKey(key)
 
 	if !found || words[2] != viper.GetString("password") {
 		fmt.Fprintln(conn, "invalid proxy name or password")
@@ -68,7 +67,7 @@ func StartSession(conn telnet.Conn) {
 
 	err = proxy.AddClient(&client{r: r, Conn: conn})
 	if err != nil {
-		msg := fmt.Sprintf("error connecting to world '%s': %v", proxy.Name, err)
+		msg := fmt.Sprintf("error connecting to world %q: %v", proxy.Key, err)
 		log.Println(msg)
 		fmt.Fprintln(conn, msg)
 		conn.Close()
@@ -97,6 +96,7 @@ type ioresult struct {
 
 type proxy struct {
 	Name      string
+	Key       string
 	Password  string
 	Address   string
 	Log       string
@@ -291,19 +291,20 @@ const logSepFormat = "2006-01-02 15:04:05 -0700 MST"
 
 var proxies = &sync.Map{}
 
-func findProxyByName(name string) (*proxy, bool) {
-	obj, found := proxies.Load(name)
+func findProxyByKey(key string) (*proxy, bool) {
+	obj, found := proxies.Load(key)
 	if found {
 		p, ok := obj.(*proxy)
 		return p, ok
 	}
 
-	h := viper.GetStringMapString("proxies." + name)
+	h := viper.GetStringMapString("proxies." + key)
 	if len(h) == 0 {
 		return nil, false
 	}
 
 	p := &proxy{
+		Key:       key,
 		Name:      h["name"],
 		Address:   h["address"],
 		Log:       h["log"],
@@ -316,8 +317,8 @@ func findProxyByName(name string) (*proxy, bool) {
 		writeServer: make(chan writereq),
 		writeClient: make(chan writereq),
 	}
-	proxies.Store(name, p)
-	go p.loop(name)
+	proxies.Store(key, p)
+	go p.loop(key)
 	return p, true
 }
 
@@ -372,10 +373,8 @@ type logFile struct {
 
 func openLogFile(name string) (*logFile, error) {
 	t := time.Now()
-	filename, err := homedir.Expand(t.Format(name))
-	if err != nil {
-		return nil, err
-	}
+	homedir := viper.GetString("user.home")
+	filename := strings.Replace(t.Format(name), "~", homedir, 1)
 	f, err := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return nil, err
