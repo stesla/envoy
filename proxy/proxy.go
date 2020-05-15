@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -21,6 +22,11 @@ Welcome to Envoy
   "connect <name> <password>" connects you to an existing world.
 ------------------------------------------------------------------------
 `
+
+func init() {
+	viper.SetDefault("proxy.log.dir", "~/rplogs/auto")
+	viper.SetDefault("proxy.log.namefmt", "2006-01-02_$key.log")
+}
 
 func CloseAll() {
 	proxies.Range(func(key, value interface{}) bool {
@@ -99,7 +105,7 @@ type proxy struct {
 	Key       string
 	Password  string
 	Address   string
-	Log       string
+	Log       bool
 	OnConnect string
 
 	addClient   chan addClientReq
@@ -132,6 +138,15 @@ func (p *proxy) ConnectString() string {
 		return fmt.Sprintf("connect \"%s\" %s", p.Name, p.Password)
 	}
 	return ""
+}
+
+func (p *proxy) LogFileName() string {
+	homedir := viper.GetString("user.home")
+	dir := strings.Replace(viper.GetString("proxy.log.dir"), "~", homedir, 1)
+	fmt := strings.Replace(viper.GetString("proxy.log.namefmt"), "$key", p.Key, -1)
+	filename := path.Join(dir, fmt)
+	t := time.Now()
+	return t.Format(filename)
 }
 
 func (p *proxy) ReopenLog() error {
@@ -201,7 +216,7 @@ func (p *proxy) loop(key string) {
 			var err error
 			if logFile != nil {
 				logFile.Close()
-				logFile, err = openLogFile(p.Log)
+				logFile, err = openLogFile(p.LogFileName())
 			}
 			ch <- err
 
@@ -217,8 +232,8 @@ func (p *proxy) loop(key string) {
 					req.ch <- err
 					break
 				}
-				if p.Log != "" {
-					logFile, err = openLogFile(p.Log)
+				if p.Log {
+					logFile, err = openLogFile(p.LogFileName())
 					if err != nil {
 						req.ch <- err
 						break
@@ -307,7 +322,7 @@ func findProxyByKey(key string) (*proxy, bool) {
 		Key:       key,
 		Name:      h["name"],
 		Address:   h["address"],
-		Log:       h["log"],
+		Log:       true,
 		OnConnect: h["onconnect"],
 		Password:  h["password"],
 
@@ -316,6 +331,9 @@ func findProxyByKey(key string) (*proxy, bool) {
 		reopenLog:   make(chan chan error),
 		writeServer: make(chan writereq),
 		writeClient: make(chan writereq),
+	}
+	if log := "proxies." + key + ".log"; viper.IsSet(log) {
+		p.Log = viper.GetBool(log)
 	}
 	proxies.Store(key, p)
 	go p.loop(key)
@@ -371,16 +389,14 @@ type logFile struct {
 	*os.File
 }
 
-func openLogFile(name string) (*logFile, error) {
+func openLogFile(filename string) (*logFile, error) {
 	t := time.Now()
-	homedir := viper.GetString("user.home")
-	filename := strings.Replace(t.Format(name), "~", homedir, 1)
 	f, err := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return nil, err
 	}
 	fmt.Fprintf(f, "--------------- opened - %s ---------------\n", t.Format(logSepFormat))
-	return &logFile{name: name, File: f}, nil
+	return &logFile{name: filename, File: f}, nil
 }
 
 func (l *logFile) Close() error {
