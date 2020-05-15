@@ -32,7 +32,6 @@ func newTelnetProtocol(fields log.Fields, r io.Reader, w io.Writer) *telnetProto
 		in:     r,
 		out:    w,
 		state:  decodeByte,
-		finish: make(chan struct{}),
 	}
 	p.ctype = fields["type"].(ConnType)
 	p.optionMap = newOptionMap(p)
@@ -43,6 +42,11 @@ func newTelnetProtocol(fields log.Fields, r io.Reader, w io.Writer) *telnetProto
 func (p *telnetProtocol) AwaitNegotiation() <-chan struct{} {
 	p.Lock()
 	defer p.Unlock()
+	if p.finish == nil {
+		ch := make(chan struct{})
+		close(ch)
+		return ch
+	}
 	return p.finish
 }
 
@@ -52,7 +56,6 @@ func (p *telnetProtocol) finished() {
 	if p.finish != nil {
 		close(p.finish)
 		p.finish = nil
-
 	}
 }
 
@@ -173,6 +176,9 @@ func (p *telnetProtocol) setEncoding(enc encoding.Encoding) {
 }
 
 func (p *telnetProtocol) startCharsetSubnegotiation() {
+	p.Lock()
+	defer p.Unlock()
+	p.finish = make(chan struct{})
 	p.withFields().Debug("SENT IAC SB CHARSET REQUEST \";UTF-8;US-ASCII\" IAC SE")
 	out := []byte{IAC, SB, Charset, charsetRequest}
 	out = append(out, []byte(";UTF-8;US-ASCII")...)
