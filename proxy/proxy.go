@@ -125,6 +125,15 @@ func (p *proxy) Close() error {
 	return <-ch
 }
 
+func (p *proxy) ConnectString() string {
+	if p.OnConnect != "" {
+		return p.OnConnect
+	} else if p.Name != "" && p.Password != "" {
+		return fmt.Sprintf("connect \"%s\" %s", p.Name, p.Password)
+	}
+	return ""
+}
+
 func (p *proxy) ReopenLog() error {
 	ch := make(chan error)
 	p.reopenLog <- ch
@@ -142,15 +151,15 @@ func (p *proxy) connect() (conn telnet.Conn, err error) {
 	}
 	conn.LogEntry().Println("connected")
 
-	if p.OnConnect != "" {
-		_, err = fmt.Fprintln(conn, p.OnConnect)
+	if str := p.ConnectString(); str != "" {
+		_, err = fmt.Fprintln(conn, str)
 	}
 
 	return
 }
 
-func (p *proxy) loop() {
-	defer proxies.Delete(p.Name)
+func (p *proxy) loop(key string) {
+	defer proxies.Delete(key)
 
 	var clients = make(map[io.Writer]struct{})
 	deleteClient := func(w io.Writer) {
@@ -295,10 +304,11 @@ func findProxyByName(name string) (*proxy, bool) {
 	}
 
 	p := &proxy{
-		Name:      name,
+		Name:      h["name"],
 		Address:   h["address"],
 		Log:       h["log"],
 		OnConnect: h["onconnect"],
+		Password:  h["password"],
 
 		addClient:   make(chan addClientReq),
 		close:       make(chan chan error, 1),
@@ -306,8 +316,8 @@ func findProxyByName(name string) (*proxy, bool) {
 		writeServer: make(chan writereq),
 		writeClient: make(chan writereq),
 	}
-	go p.loop()
 	proxies.Store(name, p)
+	go p.loop(name)
 	return p, true
 }
 

@@ -36,3 +36,17 @@ func TestRemovesFirstLine(t *testing.T) {
 	assert.Equal(t, int64(7), nw)
 	assert.Equal(t, "bar\nbaz", buf.String())
 }
+
+func TestConnectString(t *testing.T) {
+	tests := []struct {
+		onconnect, name, password string
+		expected                  string
+	}{
+		{onconnect: "connect foo bar", name: "baz", password: "quux", expected: "connect foo bar"},
+		{name: "foo", password: "xyzzy", expected: "connect \"foo\" xyzzy"},
+	}
+	for _, test := range tests {
+		p := &proxy{Name: test.name, Password: test.password, OnConnect: test.onconnect}
+		assert.Equal(t, test.expected, p.ConnectString())
+	}
+}
