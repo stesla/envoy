@@ -41,7 +41,7 @@ func TestConnReadNonAscii(t *testing.T) {
 }
 
 /*
- * Write()
+ * Write
  */
 
 func TestConnWriteAscii(t *testing.T) {
@@ -65,4 +65,23 @@ func TestConnWriteNonAscii(t *testing.T) {
 	assert.NoError(t, ew)
 	assert.Equal(t, 7, nw)
 	assert.Equal(t, "abc\x1A123", w.String())
+}
+
+/*
+ * Raw Log
+ */
+
+func TestRawLog(t *testing.T) {
+	var outr bytes.Buffer
+	var outw bytes.Buffer
+	var raw bytes.Buffer
+	expected := []byte{'h', IAC, DO, Echo, 'i'}
+	r := bytes.NewReader(expected)
+
+	c := newConnection(testLogFields, r, &outw)
+	c.SetRawLogWriter(&raw)
+	outr.ReadFrom(c)
+
+	assert.Equal(t, "hi", outr.String())
+	assert.Equal(t, expected, raw.Bytes())
 }

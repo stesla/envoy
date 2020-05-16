@@ -11,6 +11,7 @@ envoy
 
 # logs
 *.log
+*.log.raw
 
 # Test binary, built with `go test -c`
 *.test

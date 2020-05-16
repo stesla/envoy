@@ -3,6 +3,7 @@ package telnet
 import (
 	"io"
 	"net"
+	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -20,12 +21,14 @@ type Conn interface {
 	AwaitNegotiation() <-chan struct{}
 	Conn() net.Conn
 	NegotiateOptions()
+	SetRawLogWriter(io.Writer)
 
 	LogEntry() *log.Entry
 }
 
 type connection struct {
 	conn net.Conn
+	raw  *maybeWriter
 	*telnetProtocol
 }
 
@@ -45,7 +48,9 @@ func Wrap(fields log.Fields, conn net.Conn) Conn {
 }
 
 func newConnection(fields log.Fields, r io.Reader, w io.Writer) *connection {
-	c := &connection{telnetProtocol: newTelnetProtocol(fields, r, w)}
+	raw := &maybeWriter{}
+	r = io.TeeReader(r, raw)
+	c := &connection{raw: raw, telnetProtocol: newTelnetProtocol(fields, r, w)}
 	c.initializeOptions()
 	return c
 }
@@ -100,4 +105,28 @@ func (c *connection) NegotiateOptions() {
 			}
 		}
 	}()
+}
+
+func (c *connection) SetRawLogWriter(w io.Writer) {
+	c.raw.SetWriter(w)
+}
+
+type maybeWriter struct {
+	w io.Writer
+	sync.Mutex
+}
+
+func (m *maybeWriter) SetWriter(w io.Writer) {
+	m.Lock()
+	defer m.Unlock()
+	m.w = w
+}
+
+func (m *maybeWriter) Write(p []byte) (int, error) {
+	m.Lock()
+	defer m.Unlock()
+	if m.w == nil {
+		return len(p), nil
+	}
+	return m.w.Write(p)
 }

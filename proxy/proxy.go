@@ -106,6 +106,7 @@ type proxy struct {
 	Password  string
 	Address   string
 	Log       bool
+	Raw       bool
 	OnConnect string
 
 	addClient   chan addClientReq
@@ -188,8 +189,9 @@ func (p *proxy) loop(key string) {
 	clients[history] = struct{}{}
 
 	var awaitClientNegotiation = make(chan *client, 1)
-	var logFile *logFile
+	var log *logFile
 	var server telnet.Conn
+	var rawLog *logFile
 	var readServer chan struct{}
 	var readServerDone chan struct{}
 	var writeServer chan writereq
@@ -205,8 +207,11 @@ func (p *proxy) loop(key string) {
 			for c, _ := range clients {
 				deleteClient(c)
 			}
-			if logFile != nil {
-				logFile.Close()
+			if log != nil {
+				log.Close()
+			}
+			if rawLog != nil {
+				rawLog.Close()
 			}
 			ch <- server.Close()
 			server.LogEntry().Println("disconnected")
@@ -214,9 +219,14 @@ func (p *proxy) loop(key string) {
 
 		case ch := <-p.reopenLog:
 			var err error
-			if logFile != nil {
-				logFile.Close()
-				logFile, err = openLogFile(p.LogFileName())
+			name := p.LogFileName()
+			if log != nil {
+				log.Close()
+				log, err = openLogFile(name)
+			}
+			if err == nil && rawLog != nil {
+				rawLog.Close()
+				rawLog, err = openLogFile(name + ".raw")
 			}
 			ch <- err
 
@@ -233,12 +243,22 @@ func (p *proxy) loop(key string) {
 					break
 				}
 				if p.Log {
-					logFile, err = openLogFile(p.LogFileName())
+					var logName = p.LogFileName()
+					log, err = openLogFile(logName)
 					if err != nil {
 						req.ch <- err
 						break
 					}
+					if p.Raw {
+						rawLog, err = openLogFile(logName + ".raw")
+						if err != nil {
+							req.ch <- err
+							break
+						}
+						server.SetRawLogWriter(rawLog)
+					}
 				}
+
 				server.NegotiateOptions()
 				writeServer = p.writeServer
 			}
@@ -264,8 +284,8 @@ func (p *proxy) loop(key string) {
 					deleteClient(c)
 				}
 			}
-			if logFile != nil {
-				logFile.Write(req.buf)
+			if log != nil {
+				log.Write(req.buf)
 			}
 			req.ch <- ioresult{len(req.buf), nil}
 
@@ -323,6 +343,7 @@ func findProxyByKey(key string) (*proxy, bool) {
 		Name:      h["name"],
 		Address:   h["address"],
 		Log:       true,
+		Raw:       false,
 		OnConnect: h["onconnect"],
 		Password:  h["password"],
 
@@ -334,6 +355,9 @@ func findProxyByKey(key string) (*proxy, bool) {
 	}
 	if log := "proxies." + key + ".log"; viper.IsSet(log) {
 		p.Log = viper.GetBool(log)
+	}
+	if raw := "proxies." + key + ".raw"; viper.IsSet(raw) {
+		p.Raw = viper.GetBool(raw)
 	}
 	proxies.Store(key, p)
 	go p.loop(key)
