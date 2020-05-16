@@ -15,7 +15,7 @@ type telnetProtocol struct {
 	io.Reader
 	io.Writer
 	*optionMap
-	sync.Mutex
+	sync.RWMutex
 
 	ctype  ConnType
 	fields log.Fields
@@ -36,6 +36,8 @@ func newTelnetProtocol(fields log.Fields, r io.Reader, w io.Writer) *telnetProto
 	p.ctype = fields["type"].(ConnType)
 	p.optionMap = newOptionMap(p)
 	p.setEncoding(ASCII)
+	p.Reader = transform.NewReader(p.in, &telnetDecoder{p: p})
+	p.Writer = transform.NewWriter(p.out, &telnetEncoder{p: p})
 	return p
 }
 
@@ -48,6 +50,12 @@ func (p *telnetProtocol) AwaitNegotiation() <-chan struct{} {
 		return ch
 	}
 	return p.finish
+}
+
+func (p *telnetProtocol) getEncoding() encoding.Encoding {
+	p.RLock()
+	defer p.RUnlock()
+	return p.enc
 }
 
 func (p *telnetProtocol) finished() {
@@ -170,9 +178,9 @@ func (p *telnetProtocol) sendCharsetRejected() {
 }
 
 func (p *telnetProtocol) setEncoding(enc encoding.Encoding) {
+	p.Lock()
+	defer p.Unlock()
 	p.enc = enc
-	p.Reader = transform.NewReader(p.in, transform.Chain(&telnetDecoder{p: p}, enc.NewDecoder()))
-	p.Writer = transform.NewWriter(p.out, transform.Chain(&telnetEncoder{p: p}, enc.NewEncoder()))
 }
 
 func (p *telnetProtocol) startCharsetSubnegotiation() {
@@ -196,10 +204,12 @@ type telnetDecoder struct {
 
 func (*telnetDecoder) Reset() {}
 
-func (d *telnetDecoder) Transform(dst, src []byte, _ bool) (nDst, nSrc int, err error) {
+func (d *telnetDecoder) Transform(dst, src []byte, atEOF bool) (nDst, nSrc int, err error) {
+	buf := make([]byte, len(dst))
+	n := 0
 	telnet := d.p
 	for i, b := range src {
-		if nDst >= len(dst) {
+		if n >= len(buf) {
 			err = transform.ErrShortDst
 			break
 		}
@@ -208,11 +218,15 @@ func (d *telnetDecoder) Transform(dst, src []byte, _ bool) (nDst, nSrc int, err 
 		var ok bool
 		telnet.state, c, ok = telnet.state(telnet, b)
 		if ok {
-			dst[nDst] = c
-			nDst++
+			buf[n] = c
+			n++
 		}
 
 		nSrc = i + 1
+	}
+	nDst, _, terr := telnet.getEncoding().NewDecoder().Transform(dst, buf[:n], atEOF)
+	if nil == err {
+		err = terr
 	}
 	return
 }
@@ -295,8 +309,10 @@ type telnetEncoder struct {
 
 func (*telnetEncoder) Reset() {}
 
-func (d *telnetEncoder) Transform(dst, src []byte, _ bool) (nDst, nSrc int, err error) {
-	for i, b := range src {
+func (d *telnetEncoder) Transform(dst, src []byte, atEOF bool) (nDst, nSrc int, err error) {
+	srcbuf := make([]byte, len(src))
+	n, _, terr := d.p.getEncoding().NewEncoder().Transform(srcbuf, src, atEOF)
+	for i, b := range srcbuf[:n] {
 		var buf []byte
 		switch b {
 		case IAC:
@@ -315,6 +331,9 @@ func (d *telnetEncoder) Transform(dst, src []byte, _ bool) (nDst, nSrc int, err 
 			break
 		}
 		nSrc = i + 1
+	}
+	if nil == err {
+		err = terr
 	}
 	return
 }
