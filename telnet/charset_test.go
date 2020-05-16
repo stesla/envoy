@@ -102,9 +102,9 @@ func TestCharsetAcceptAscii(t *testing.T) {
 }
 
 func TestCharsetAcceptUTF8(t *testing.T) {
-	in := []byte{'h', IAC, SB, Charset, charsetRequest}
+	in := []byte{0x80, IAC, SB, Charset, charsetRequest}
 	in = append(in, []byte("[TTABLE]\x01;UTF-8;ISO-8859-1;US-ASCII;CP437")...)
-	in = append(in, IAC, SE, 'i')
+	in = append(in, IAC, SE, 0xe2, 0x80, 0xbb)
 
 	test := newDecodeTest(in)
 	o := test.p.get(Charset)
@@ -112,7 +112,7 @@ func TestCharsetAcceptUTF8(t *testing.T) {
 	r, w, err := test.decode()
 	assert.NoError(t, err)
 
-	assert.Equal(t, []byte("hi"), r)
+	assert.Equal(t, []byte("\x1a※"), r)
 
 	expected := []byte{IAC, SB, Charset, charsetAccepted}
 	expected = append(expected, []byte("UTF-8")...)

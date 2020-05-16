@@ -208,6 +208,7 @@ func (d *telnetDecoder) Transform(dst, src []byte, atEOF bool) (nDst, nSrc int, 
 	buf := make([]byte, len(dst))
 	n := 0
 	telnet := d.p
+	enc := telnet.getEncoding()
 	for i, b := range src {
 		if n >= len(buf) {
 			err = transform.ErrShortDst
@@ -223,6 +224,16 @@ func (d *telnetDecoder) Transform(dst, src []byte, atEOF bool) (nDst, nSrc int, 
 		}
 
 		nSrc = i + 1
+
+		if newEnc := telnet.getEncoding(); enc != newEnc {
+			eof := atEOF && len(buf) == len(src)
+			nDst, _, err = enc.NewDecoder().Transform(dst, buf[:n], eof)
+			if err != nil {
+				return
+			}
+			err = transform.ErrShortDst
+			return
+		}
 	}
 	nDst, _, terr := telnet.getEncoding().NewDecoder().Transform(dst, buf[:n], atEOF)
 	if nil == err {

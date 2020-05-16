@@ -24,12 +24,15 @@ func newDecodeTest(input []byte) (dt *decodeTest) {
 }
 
 func (t *decodeTest) decode() (r, w []byte, err error) {
-	r = make([]byte, len(t.in)) // At most we'll read all the bytes
-	nr, er := t.p.Read(r)
+	var buf bytes.Buffer
+	_, er := buf.ReadFrom(t.p)
 	if er != nil {
 		err = fmt.Errorf("Read: %q", er)
 	}
-	r = r[0:nr] // Truncate to the length actually read
+	r = buf.Bytes()
+	if r == nil {
+		r = []byte{}
+	}
 	w = t.out.Bytes()
 	if w == nil {
 		w = []byte{}
