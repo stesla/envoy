@@ -257,14 +257,17 @@ func decodeByte(_ *telnetProtocol, c byte) (decodeState, byte, bool) {
 func decodeCommand(p *telnetProtocol, c byte) (decodeState, byte, bool) {
 	switch c {
 	case IAC:
-		p.withFields().Debug("RECV IAC IAC")
+		p.withFields().Trace("RECV IAC IAC")
 		return decodeByte, c, true
 	case DO, DONT, WILL, WONT:
 		return decodeOption(c), c, false
 	case SB:
 		return decodeSubnegotiation, c, false
+	case NOP:
+		p.withFields().Trace("RECV IAC NOP")
+	default:
+		p.withFields().Debugf("RECV IAC %s", commandByte(c))
 	}
-	p.withFields().Debugf("RECV IAC %s", commandByte(c))
 	return decodeByte, c, false
 }
 
