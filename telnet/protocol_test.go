@@ -58,6 +58,13 @@ func TestStripTelnetCommands(t *testing.T) {
 
 func TestEscapedIAC(t *testing.T) {
 	test := newDecodeTest([]byte{'h', IAC, IAC, 'i'})
+	r, _, err := test.decode()
+	assert.NoError(t, err)
+	assert.Equal(t, []byte{'h', 0x1a, 'i'}, r)
+}
+
+func TestEscapedIACRaw(t *testing.T) {
+	test := newDecodeTest([]byte{'h', IAC, IAC, 'i'})
 	test.p.setEncoding(Raw)
 	r, _, err := test.decode()
 	assert.NoError(t, err)
@@ -135,32 +142,48 @@ func TestErrorReading(t *testing.T) {
 ** Write
 ***/
 
-func sendBytes(in []byte) []byte {
-	var r, w bytes.Buffer
-	p := newTelnetProtocol(testLogFields, &r, &w)
-	p.setEncoding(Raw)
+func sendBytes(in []byte, enc encoding.Encoding) []byte {
+	var w bytes.Buffer
+	p := newTelnetProtocol(testLogFields, nil, &w)
+	p.setEncoding(enc)
+	p.finishCharset(nil)
 	p.Write(in)
 	return w.Bytes()
 }
 
 func TestWriteAscii(t *testing.T) {
-	actual := sendBytes([]byte("hello"))
+	actual := sendBytes([]byte("hello"), ASCII)
 	assert.Equal(t, []byte("hello"), actual)
 }
 
 func TestWriteIAC(t *testing.T) {
-	actual := sendBytes([]byte{'h', IAC, 'i'})
+	actual := sendBytes([]byte{'h', IAC, 'i'}, ASCII)
+	assert.Equal(t, []byte{'h', 0x1a, 'i'}, actual)
+}
+
+func TestWriteIACRaw(t *testing.T) {
+	actual := sendBytes([]byte{'h', IAC, 'i'}, Raw)
 	assert.Equal(t, []byte{'h', IAC, IAC, 'i'}, actual)
 }
 
 func TestWriteNewline(t *testing.T) {
-	actual := sendBytes([]byte("foo\nbar"))
+	actual := sendBytes([]byte("foo\nbar"), ASCII)
 	assert.Equal(t, []byte("foo\r\nbar"), actual)
 }
 
 func TestWriteCarriageReturn(t *testing.T) {
-	actual := sendBytes([]byte("foo\rbar"))
+	actual := sendBytes([]byte("foo\rbar"), ASCII)
 	assert.Equal(t, []byte("foo\r\x00bar"), actual)
+}
+
+func TestBuffersWritesUntilCharsetFinished(t *testing.T) {
+	var w bytes.Buffer
+	p := newTelnetProtocol(testLogFields, nil, &w)
+	p.Write([]byte("※ hello "))
+	p.setEncoding(Raw)
+	p.finishCharset(nil)
+	p.Write([]byte("※ world ※"))
+	assert.Equal(t, "※ hello ※ world ※", w.String())
 }
 
 /***

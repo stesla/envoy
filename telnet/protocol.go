@@ -36,7 +36,7 @@ func newTelnetProtocol(fields log.Fields, r io.Reader, w io.Writer) *telnetProto
 	p.optionMap = newOptionMap(p)
 	p.setEncoding(ASCII)
 	p.Reader = transform.NewReader(p.in, &telnetDecoder{p: p})
-	p.Writer = transform.NewWriter(p.out, &telnetEncoder{p: p})
+	p.Writer = new(bytes.Buffer)
 	return p
 }
 
@@ -58,6 +58,10 @@ func (p *telnetProtocol) finishCharset(enc encoding.Encoding) {
 			opt.enableUs()
 			opt.enableThem()
 		}
+	}
+	oldw := p.setWriter(transform.NewWriter(p.out, &telnetEncoder{p: p}))
+	if buf, ok := oldw.(*bytes.Buffer); ok {
+		buf.WriteTo(p)
 	}
 }
 
@@ -167,6 +171,14 @@ func (p *telnetProtocol) selectEncoding(names [][]byte) (charset []byte, enc enc
 func (p *telnetProtocol) sendCharsetRejected() {
 	p.withFields().Debug("SENT IAC SB CHARSET REJECTED IAC SE")
 	p.send(IAC, SB, Charset, charsetRejected, IAC, SE)
+}
+
+func (p *telnetProtocol) setWriter(new io.Writer) (old io.Writer) {
+	p.Lock()
+	defer p.Unlock()
+	old = p.Writer
+	p.Writer = new
+	return
 }
 
 func (p *telnetProtocol) setEncoding(enc encoding.Encoding) {
