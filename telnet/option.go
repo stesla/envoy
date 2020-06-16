@@ -118,6 +118,14 @@ func (o *option) enable(state *telnetQState, cmd byte) {
 	}
 }
 
+func (o *option) negotiatingThem() bool {
+	return telnetQNo != o.them && telnetQYes != o.them
+}
+
+func (o *option) negotiatingUs() bool {
+	return telnetQNo != o.us && telnetQYes != o.us
+}
+
 func (o *option) notify() {
 	o.p.notify(o)
 }

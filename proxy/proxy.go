@@ -188,7 +188,6 @@ func (p *proxy) loop(key string) {
 	var history = newHistory()
 	clients[history] = struct{}{}
 
-	var awaitClientNegotiation = make(chan *client, 1)
 	var log *logFile
 	var server telnet.Conn
 	var rawLog *logFile
@@ -230,10 +229,6 @@ func (p *proxy) loop(key string) {
 			}
 			ch <- err
 
-		case client := <-awaitClientNegotiation:
-			clients[client] = struct{}{}
-			history.WriteTo(client)
-
 		case req := <-p.addClient:
 			if server == nil {
 				var err error
@@ -262,19 +257,12 @@ func (p *proxy) loop(key string) {
 				server.NegotiateOptions()
 				writeServer = p.writeServer
 			}
-			go func(client *client) {
-				if await := server.AwaitNegotiation(); await != nil {
-					<-await
-				}
-				if await := client.AwaitNegotiation(); await != nil {
-					<-await
-				}
-				awaitClientNegotiation <- client
-			}(req.c)
 			go func() {
 				io.Copy(p.ServerWriter(), req.c)
 				req.c.LogEntry().Println("disconnected")
 			}()
+			clients[req.c] = struct{}{}
+			history.WriteTo(req.c)
 			close(req.ch)
 
 		case req := <-p.writeClient:

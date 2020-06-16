@@ -17,7 +17,6 @@ const (
 
 type Conn interface {
 	io.ReadWriteCloser
-	AwaitNegotiation() <-chan struct{}
 	Conn() net.Conn
 	NegotiateOptions()
 	SetRawLogWriter(io.Writer)
