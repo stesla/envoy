@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/text/encoding"
 )
 
 type ConnType string
@@ -19,6 +20,7 @@ type Conn interface {
 	io.ReadWriteCloser
 	Conn() net.Conn
 	NegotiateOptions()
+	SetEncoding(encoding.Encoding)
 	SetRawLogWriter(io.Writer)
 
 	LogEntry() *log.Entry
@@ -63,6 +65,10 @@ func (c *connection) Conn() net.Conn {
 
 func (c *connection) LogEntry() *log.Entry {
 	return c.telnetProtocol.withFields()
+}
+
+func (c *connection) SetEncoding(enc encoding.Encoding) {
+	c.setEncoding(enc)
 }
 
 func (c *connection) initializeOptions() {

@@ -31,10 +31,10 @@ func newTelnetProtocol(fields log.Fields, r io.Reader, w io.Writer) *telnetProto
 		in:     r,
 		out:    w,
 		state:  decodeByte,
+		enc:    ASCII,
 	}
 	p.ctype = fields["type"].(ConnType)
 	p.optionMap = newOptionMap(p)
-	p.setEncoding(ASCII)
 	p.Reader = transform.NewReader(p.in, &telnetDecoder{p: p})
 	p.Writer = new(bytes.Buffer)
 	return p
@@ -182,6 +182,7 @@ func (p *telnetProtocol) setWriter(new io.Writer) (old io.Writer) {
 }
 
 func (p *telnetProtocol) setEncoding(enc encoding.Encoding) {
+	p.withFields().Tracef("setEncoding(%q)", enc)
 	p.Lock()
 	defer p.Unlock()
 	p.enc = enc

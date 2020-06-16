@@ -4,10 +4,12 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os/user"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"golang.org/x/text/encoding/ianaindex"
 )
 
 var (
@@ -68,6 +70,16 @@ func initConfig() {
 		}
 		log.SetLevel(level)
 		log.Println("loglevel set to", level)
+	}
+
+	for _, key := range viper.AllKeys() {
+		if strings.HasSuffix(key, ".encoding") {
+			encName := viper.GetString(key)
+			_, err := ianaindex.IANA.Encoding(encName)
+			if err != nil {
+				log.Fatalf("error loading encoding %q: %v", encName, err)
+			}
+		}
 	}
 }
 

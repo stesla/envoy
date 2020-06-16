@@ -14,6 +14,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
+	"golang.org/x/text/encoding"
+	"golang.org/x/text/encoding/ianaindex"
 )
 
 const motd = `
@@ -101,13 +103,14 @@ type ioresult struct {
 }
 
 type proxy struct {
-	Name      string
-	Key       string
-	Password  string
-	Address   string
-	Log       bool
-	Raw       bool
-	OnConnect string
+	Name           string
+	Key            string
+	Password       string
+	Address        string
+	Log            bool
+	Raw            bool
+	OnConnect      string
+	ServerEncoding string
 
 	addClient   chan addClientReq
 	close       chan chan error
@@ -161,9 +164,19 @@ func (p *proxy) ServerWriter() io.Writer {
 }
 
 func (p *proxy) connect() (conn telnet.Conn, err error) {
+	var enc encoding.Encoding
+	if p.ServerEncoding != "" {
+		// These strings get validated in cmd/root.go when the config is
+		// initially loaded, so there will not be an error here.
+		enc, _ = ianaindex.IANA.Encoding(p.ServerEncoding)
+	}
+
 	conn, err = telnet.Dial(p.Address)
 	if err != nil {
 		return
+	}
+	if enc != nil {
+		conn.SetEncoding(enc)
 	}
 	conn.LogEntry().Println("connected")
 
@@ -346,6 +359,9 @@ func findProxyByKey(key string) (*proxy, bool) {
 	}
 	if raw := "proxies." + key + ".raw"; viper.IsSet(raw) {
 		p.Raw = viper.GetBool(raw)
+	}
+	if encoding := "proxies." + key + ".encoding"; viper.IsSet(encoding) {
+		p.ServerEncoding = viper.GetString(encoding)
 	}
 	proxies.Store(key, p)
 	go p.loop(key)
