@@ -43,9 +43,14 @@ func TestDONotSupportEcho(t *testing.T) {
 
 type qMethodTest struct {
 	start, end telnetQState
+	notified   *option
 	permitted  bool
 	expected   byte
 	actual     []byte
+}
+
+func (q *qMethodTest) notify(opt *option) {
+	q.notified = opt
 }
 
 func (q *qMethodTest) send(actual ...byte) error {
@@ -58,15 +63,10 @@ func (q *qMethodTest) shouldNotify() bool {
 		(q.end == telnetQNo || q.end == telnetQYes)
 }
 
-func (q *qMethodTest) assertNotification(t *testing.T, ch <-chan option, f func(option) telnetQState) {
+func (q *qMethodTest) assertNotification(t *testing.T, f func(option) telnetQState) {
 	if q.shouldNotify() {
-		select {
-		case opt := <-ch:
-			if !assert.Equal(t, f(opt), q.end) {
-				t.Logf("%+v", opt)
-			}
-		default:
-			assert.Fail(t, "expected notification, but none was sent")
+		if !assert.NotNil(t, q.notified) || !assert.Equal(t, f(*q.notified), q.end) {
+			t.Logf("%+v", q.notified)
 		}
 	}
 }
@@ -84,13 +84,12 @@ func TestQMethodReceiveDO(t *testing.T) {
 	for _, q := range tests {
 		o := newOption(SuppressGoAhead, q)
 		o.us, o.allowUs = q.start, q.permitted
-		ch := o.notifyOfUs()
 		o.receive(DO)
 		assert.Equalf(t, q.end, o.us, "expected %s got %s", q.end, o.us)
 		if q.expected != 0 {
 			assert.Equal(t, []byte{IAC, q.expected, SuppressGoAhead}, q.actual)
 		}
-		q.assertNotification(t, ch, func(opt option) telnetQState { return opt.us })
+		q.assertNotification(t, func(opt option) telnetQState { return opt.us })
 	}
 }
 
@@ -106,13 +105,12 @@ func TestQMethodReceiveDONT(t *testing.T) {
 	for _, q := range tests {
 		o := newOption(SuppressGoAhead, q)
 		o.us, o.allowUs = q.start, q.permitted
-		ch := o.notifyOfUs()
 		o.receive(DONT)
 		assert.Equalf(t, q.end, o.us, "expected %s got %s", q.end, o.us)
 		if q.expected != 0 {
 			assert.Equal(t, []byte{IAC, q.expected, SuppressGoAhead}, q.actual)
 		}
-		q.assertNotification(t, ch, func(opt option) telnetQState { return opt.us })
+		q.assertNotification(t, func(opt option) telnetQState { return opt.us })
 	}
 }
 
@@ -129,13 +127,12 @@ func TestQMethodReceiveWILL(t *testing.T) {
 	for _, q := range tests {
 		o := newOption(SuppressGoAhead, q)
 		o.them, o.allowThem = q.start, q.permitted
-		ch := o.notifyOfThem()
 		o.receive(WILL)
 		assert.Equalf(t, q.end, o.them, "expected %s got %s", q.end, o.them)
 		if q.expected != 0 {
 			assert.Equal(t, []byte{IAC, q.expected, SuppressGoAhead}, q.actual)
 		}
-		q.assertNotification(t, ch, func(opt option) telnetQState { return opt.them })
+		q.assertNotification(t, func(opt option) telnetQState { return opt.them })
 	}
 }
 
@@ -151,13 +148,12 @@ func TestQMethodReceiveWONT(t *testing.T) {
 	for _, q := range tests {
 		o := newOption(SuppressGoAhead, q)
 		o.them, o.allowThem = q.start, q.permitted
-		ch := o.notifyOfThem()
 		o.receive(WONT)
 		assert.Equalf(t, q.end, o.them, "expected %s got %s", q.end, o.them)
 		if q.expected != 0 {
 			assert.Equal(t, []byte{IAC, q.expected, SuppressGoAhead}, q.actual)
 		}
-		q.assertNotification(t, ch, func(opt option) telnetQState { return opt.them })
+		q.assertNotification(t, func(opt option) telnetQState { return opt.them })
 	}
 }
 

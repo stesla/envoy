@@ -4,7 +4,6 @@ import (
 	"io"
 	"net"
 	"sync"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -75,7 +74,6 @@ func (c *connection) initializeOptions() {
 }
 
 func (c *connection) NegotiateOptions() {
-	var chThem, chUs <-chan option
 	switch c.telnetProtocol.ctype {
 	case ClientType:
 		c.telnetProtocol.get(EndOfRecord).enableThem()
@@ -84,27 +82,9 @@ func (c *connection) NegotiateOptions() {
 		c.telnetProtocol.get(SuppressGoAhead).enableUs()
 		fallthrough
 	case ServerType:
-		chThem = c.telnetProtocol.get(Charset).enableThem()
-		chUs = c.telnetProtocol.get(Charset).enableUs()
+		c.telnetProtocol.get(Charset).enableThem()
+		c.telnetProtocol.get(Charset).enableUs()
 	}
-	go func() {
-		for {
-			select {
-			case opt := <-chThem:
-				if opt.enabledForThem() {
-					c.telnetProtocol.startCharsetSubnegotiation()
-					return
-				}
-			case opt := <-chUs:
-				if opt.enabledForUs() {
-					c.telnetProtocol.startCharsetSubnegotiation()
-					return
-				}
-			case <-time.After(time.Second):
-				return
-			}
-		}
-	}()
 }
 
 func (c *connection) SetRawLogWriter(w io.Writer) {

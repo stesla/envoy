@@ -1,23 +1,24 @@
 package telnet
 
-type sender interface {
+type protocol interface {
 	send(...byte) error
+	notify(*option)
 }
 
 type optionMap struct {
-	s sender
+	p protocol
 	m map[byte]*option
 }
 
-func newOptionMap(s sender) (o *optionMap) {
-	o = &optionMap{s: s, m: make(map[byte]*option)}
+func newOptionMap(p protocol) (o *optionMap) {
+	o = &optionMap{p: p, m: make(map[byte]*option)}
 	return
 }
 
 func (o *optionMap) get(c byte) (opt *option) {
 	opt, ok := o.m[c]
 	if !ok {
-		opt = newOption(c, o.s)
+		opt = newOption(c, o.p)
 		o.m[c] = opt
 	}
 	return
@@ -34,7 +35,7 @@ func (o *optionMap) merge(m *optionMap) {
 // RFC 1143 - The Q Method of Implementing TELNET Option Negotiation
 
 type option struct {
-	s    sender
+	p    protocol
 	code byte
 
 	allowUs, allowThem bool
@@ -44,9 +45,9 @@ type option struct {
 	uschs   map[chan option]struct{}
 }
 
-func newOption(c byte, s sender) *option {
+func newOption(c byte, p protocol) *option {
 	return &option{
-		s:       s,
+		p:       p,
 		code:    c,
 		themchs: make(map[chan option]struct{}),
 		uschs:   make(map[chan option]struct{}),
@@ -57,14 +58,12 @@ func (o *option) allow(us, them bool) {
 	o.allowUs, o.allowThem = us, them
 }
 
-func (o *option) disableThem() <-chan option {
+func (o *option) disableThem() {
 	o.disable(&o.them, DONT)
-	return o.notifyOfThem()
 }
 
-func (o *option) disableUs() <-chan option {
+func (o *option) disableUs() {
 	o.disable(&o.us, WONT)
-	return o.notifyOfUs()
 }
 
 func (o *option) disable(state *telnetQState, cmd byte) {
@@ -93,14 +92,12 @@ func (o *option) enabledForUs() bool {
 	return telnetQYes == o.us
 }
 
-func (o *option) enableThem() <-chan option {
+func (o *option) enableThem() {
 	o.enable(&o.them, DO)
-	return o.notifyOfThem()
 }
 
-func (o *option) enableUs() <-chan option {
+func (o *option) enableUs() {
 	o.enable(&o.us, WILL)
-	return o.notifyOfUs()
 }
 
 func (o *option) enable(state *telnetQState, cmd byte) {
@@ -121,36 +118,12 @@ func (o *option) enable(state *telnetQState, cmd byte) {
 	}
 }
 
-func (o *option) notifyOfThem() <-chan option {
-	ch := make(chan option, 1)
-	o.themchs[ch] = struct{}{}
-	return ch
-}
-
-func (o *option) notifyOfUs() <-chan option {
-	ch := make(chan option, 1)
-	o.uschs[ch] = struct{}{}
-	return ch
-}
-
-func (o *option) notify(state *telnetQState) {
-	var m map[chan option]struct{}
-	if state == &o.them {
-		m = o.themchs
-	} else if state == &o.us {
-		m = o.uschs
-	} else {
-		panic("neither us or them")
-	}
-
-	for ch, _ := range m {
-		delete(m, ch)
-		ch <- *o
-	}
+func (o *option) notify() {
+	o.p.notify(o)
 }
 
 func (o *option) receive(req byte) {
-	if p, ok := o.s.(*telnetProtocol); ok {
+	if p, ok := o.p.(*telnetProtocol); ok {
 		p.withFields().Debugf("RECV IAC %s %s", commandByte(req), optionByte(o.code))
 	}
 	switch req {
@@ -178,13 +151,13 @@ func (o *option) receiveEnableRequest(state *telnetQState, allowed bool, accept,
 		// ignore
 	case telnetQWantNoEmpty:
 		*state = telnetQNo
-		o.notify(state)
+		o.notify()
 	case telnetQWantNoOpposite:
 		*state = telnetQYes
-		o.notify(state)
+		o.notify()
 	case telnetQWantYesEmpty:
 		*state = telnetQYes
-		o.notify(state)
+		o.notify()
 	case telnetQWantYesOpposite:
 		*state = telnetQWantNoEmpty
 		o.send(reject, o.code)
@@ -198,27 +171,27 @@ func (o *option) receiveDisableDemand(state *telnetQState, accept, reject byte) 
 	case telnetQYes:
 		*state = telnetQNo
 		o.send(reject, o.code)
-		o.notify(state)
+		o.notify()
 	case telnetQWantNoEmpty:
 		*state = telnetQNo
-		o.notify(state)
+		o.notify()
 	case telnetQWantNoOpposite:
 		*state = telnetQWantYesEmpty
 		o.send(accept, o.code)
 	case telnetQWantYesEmpty:
 		*state = telnetQNo
-		o.notify(state)
+		o.notify()
 	case telnetQWantYesOpposite:
 		*state = telnetQNo
-		o.notify(state)
+		o.notify()
 	}
 }
 
 func (o *option) send(cmd, option byte) {
-	if p, ok := o.s.(*telnetProtocol); ok {
+	if p, ok := o.p.(*telnetProtocol); ok {
 		p.withFields().Debugf("SENT IAC %s %s", commandByte(cmd), optionByte(option))
 	}
-	o.s.send(IAC, cmd, option)
+	o.p.send(IAC, cmd, option)
 }
 
 type telnetQState int

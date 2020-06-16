@@ -155,6 +155,15 @@ func (p *telnetProtocol) handleSubnegotiation(buf []byte) {
 	}
 }
 
+func (p *telnetProtocol) notify(o *option) {
+	switch o.code {
+	case Charset:
+		if p.ctype == ClientType && (o.enabledForUs() || o.enabledForThem()) {
+			p.startCharsetSubnegotiation()
+		}
+	}
+}
+
 func (p *telnetProtocol) send(cmd ...byte) (err error) {
 	_, err = p.out.Write(cmd)
 	return
