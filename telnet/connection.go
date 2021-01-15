@@ -5,7 +5,6 @@ import (
 	"net"
 	"sync"
 
-	log "github.com/sirupsen/logrus"
 	"golang.org/x/text/encoding"
 )
 
@@ -21,9 +20,8 @@ type Conn interface {
 	Conn() net.Conn
 	NegotiateOptions()
 	SetEncoding(encoding.Encoding)
+	SetLog(Log)
 	SetRawLogWriter(io.Writer)
-
-	LogEntry() *log.Entry
 }
 
 type connection struct {
@@ -32,16 +30,16 @@ type connection struct {
 	*telnetProtocol
 }
 
-func Wrap(fields log.Fields, conn net.Conn) Conn {
-	c := newConnection(fields, conn, conn)
+func Wrap(peerType PeerType, conn net.Conn) Conn {
+	c := newConnection(peerType, conn, conn)
 	c.conn = conn
 	return c
 }
 
-func newConnection(fields log.Fields, r io.Reader, w io.Writer) *connection {
+func newConnection(peerType PeerType, r io.Reader, w io.Writer) *connection {
 	raw := &maybeWriter{}
 	r = io.TeeReader(r, raw)
-	c := &connection{raw: raw, telnetProtocol: newTelnetProtocol(fields, r, w)}
+	c := &connection{raw: raw, telnetProtocol: newTelnetProtocol(peerType, r, w)}
 	c.initializeOptions()
 	return c
 }
@@ -52,10 +50,6 @@ func (c *connection) Close() error {
 
 func (c *connection) Conn() net.Conn {
 	return c.conn
-}
-
-func (c *connection) LogEntry() *log.Entry {
-	return c.telnetProtocol.withFields()
 }
 
 func (c *connection) SetEncoding(enc encoding.Encoding) {

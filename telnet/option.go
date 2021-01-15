@@ -132,7 +132,7 @@ func (o *option) notify() {
 
 func (o *option) receive(req byte) {
 	if p, ok := o.p.(*telnetProtocol); ok {
-		p.withFields().Debugf("RECV IAC %s %s", commandByte(req), optionByte(o.code))
+		p.log.Debugf("RECV IAC %s %s", commandByte(req), optionByte(o.code))
 	}
 	switch req {
 	case DO:
@@ -197,7 +197,7 @@ func (o *option) receiveDisableDemand(state *telnetQState, accept, reject byte) 
 
 func (o *option) send(cmd, option byte) {
 	if p, ok := o.p.(*telnetProtocol); ok {
-		p.withFields().Debugf("SENT IAC %s %s", commandByte(cmd), optionByte(option))
+		p.log.Debugf("SENT IAC %s %s", commandByte(cmd), optionByte(option))
 	}
 	o.p.send(IAC, cmd, option)
 }

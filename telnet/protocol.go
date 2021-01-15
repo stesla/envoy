@@ -5,7 +5,6 @@ import (
 	"io"
 	"sync"
 
-	log "github.com/sirupsen/logrus"
 	"golang.org/x/text/encoding"
 	"golang.org/x/text/encoding/unicode"
 	"golang.org/x/text/transform"
@@ -18,22 +17,22 @@ type telnetProtocol struct {
 	sync.RWMutex
 
 	peerType PeerType
-	fields   log.Fields
 	in       io.Reader
 	out      io.Writer
 	state    decodeState
 	enc      encoding.Encoding
+	log      *maybeLog
 }
 
-func newTelnetProtocol(fields log.Fields, r io.Reader, w io.Writer) *telnetProtocol {
+func newTelnetProtocol(peerType PeerType, r io.Reader, w io.Writer) *telnetProtocol {
 	p := &telnetProtocol{
-		fields: fields,
-		in:     r,
-		out:    w,
-		state:  decodeByte,
-		enc:    ASCII,
+		in:    r,
+		out:   w,
+		state: decodeByte,
+		enc:   ASCII,
+		log:   &maybeLog{},
 	}
-	p.peerType = fields["type"].(PeerType)
+	p.peerType = peerType
 	p.optionMap = newOptionMap(p)
 	p.Reader = transform.NewReader(p.in, &telnetDecoder{p: p})
 	p.Writer = new(bytes.Buffer)
@@ -67,11 +66,11 @@ func (p *telnetProtocol) finishCharset(enc encoding.Encoding) {
 
 func (p *telnetProtocol) handleCharset(buf []byte) {
 	if len(buf) == 0 {
-		p.withFields().Debug("RECV IAC SB CHARSET IAC SE")
+		p.log.Debug("RECV IAC SB CHARSET IAC SE")
 		return
 	}
 	cmd, buf := buf[0], buf[1:]
-	p.withFields().Debugf("RECV IAC SB CHARSET %s %q IAC SE", charsetByte(cmd), buf)
+	p.log.Debugf("RECV IAC SB CHARSET %s %q IAC SE", charsetByte(cmd), buf)
 	opt := p.get(Charset)
 	switch cmd {
 	case charsetRequest:
@@ -103,7 +102,7 @@ func (p *telnetProtocol) handleCharset(buf []byte) {
 			return
 		}
 
-		p.withFields().Debugf("SEND IAC SB CHARSET ACCEPTED %q IAC SE", charset)
+		p.log.Debugf("SEND IAC SB CHARSET ACCEPTED %q IAC SE", charset)
 		cmd := []byte{IAC, SB, Charset, charsetAccepted}
 		cmd = append(cmd, []byte(charset)...)
 		cmd = append(cmd, IAC, SE)
@@ -128,14 +127,14 @@ func (p *telnetProtocol) handleCharset(buf []byte) {
 
 func (p *telnetProtocol) handleSubnegotiation(buf []byte) {
 	if len(buf) == 0 {
-		p.withFields().Debug("RECV IAC SB IAC SE")
+		p.log.Debug("RECV IAC SB IAC SE")
 		return
 	}
 	switch opt, buf := buf[0], buf[1:]; opt {
 	case Charset:
 		p.handleCharset(buf)
 	default:
-		p.withFields().Debugf("RECV IAC SB %s %q IAC SE", optionByte(opt), buf)
+		p.log.Debugf("RECV IAC SB %s %q IAC SE", optionByte(opt), buf)
 	}
 }
 
@@ -169,7 +168,7 @@ func (p *telnetProtocol) selectEncoding(names [][]byte) (charset []byte, enc enc
 }
 
 func (p *telnetProtocol) sendCharsetRejected() {
-	p.withFields().Debug("SENT IAC SB CHARSET REJECTED IAC SE")
+	p.log.Debug("SENT IAC SB CHARSET REJECTED IAC SE")
 	p.send(IAC, SB, Charset, charsetRejected, IAC, SE)
 }
 
@@ -182,24 +181,24 @@ func (p *telnetProtocol) setWriter(new io.Writer) (old io.Writer) {
 }
 
 func (p *telnetProtocol) setEncoding(enc encoding.Encoding) {
-	p.withFields().Tracef("setEncoding(%q)", enc)
+	p.log.Tracef("setEncoding(%q)", enc)
 	p.Lock()
 	defer p.Unlock()
 	p.enc = enc
 }
 
+func (p *telnetProtocol) SetLog(log Log) {
+	p.log.log = log
+}
+
 func (p *telnetProtocol) startCharset() {
 	p.Lock()
 	defer p.Unlock()
-	p.withFields().Debug("SENT IAC SB CHARSET REQUEST \";UTF-8;US-ASCII\" IAC SE")
+	p.log.Debug("SENT IAC SB CHARSET REQUEST \";UTF-8;US-ASCII\" IAC SE")
 	out := []byte{IAC, SB, Charset, charsetRequest}
 	out = append(out, []byte(";UTF-8;US-ASCII")...)
 	out = append(out, IAC, SE)
 	p.send(out...)
-}
-
-func (p *telnetProtocol) withFields() *log.Entry {
-	return log.WithFields(p.fields)
 }
 
 type telnetDecoder struct {
@@ -261,16 +260,16 @@ func decodeByte(_ *telnetProtocol, c byte) (decodeState, byte, bool) {
 func decodeCommand(p *telnetProtocol, c byte) (decodeState, byte, bool) {
 	switch c {
 	case IAC:
-		p.withFields().Trace("RECV IAC IAC")
+		p.log.Trace("RECV IAC IAC")
 		return decodeByte, c, true
 	case DO, DONT, WILL, WONT:
 		return decodeOption(c), c, false
 	case SB:
 		return decodeSubnegotiation, c, false
 	case NOP:
-		p.withFields().Trace("RECV IAC NOP")
+		p.log.Trace("RECV IAC NOP")
 	default:
-		p.withFields().Debugf("RECV IAC %s", commandByte(c))
+		p.log.Debugf("RECV IAC %s", commandByte(c))
 	}
 	return decodeByte, c, false
 }

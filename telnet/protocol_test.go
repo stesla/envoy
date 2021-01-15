@@ -19,7 +19,7 @@ type decodeTest struct {
 func newDecodeTest(input []byte) (dt *decodeTest) {
 	dt = &decodeTest{in: input}
 	in := bytes.NewBuffer(dt.in)
-	dt.p = newTelnetProtocol(testLogFields, in, &dt.out)
+	dt.p = newTelnetProtocol(ServerType, in, &dt.out)
 	return
 }
 
@@ -100,7 +100,7 @@ func TestCRIsOtherwiseIgnored(t *testing.T) {
 
 func TestSplitCommand(t *testing.T) {
 	var in, out bytes.Buffer
-	protocol := newTelnetProtocol(testLogFields, &in, &out)
+	protocol := newTelnetProtocol(ServerType, &in, &out)
 
 	r := make([]byte, 2)
 	in.Write([]byte{'h', IAC})
@@ -126,7 +126,7 @@ func (r boomReader) Read(b []byte) (n int, err error) {
 
 func TestErrorReading(t *testing.T) {
 	var out bytes.Buffer
-	protocol := newTelnetProtocol(testLogFields, boomReader(2), &out)
+	protocol := newTelnetProtocol(ServerType, boomReader(2), &out)
 	buf := make([]byte, 16)
 	n, err := protocol.Read(buf)
 	if err == nil {
@@ -144,7 +144,7 @@ func TestErrorReading(t *testing.T) {
 
 func sendBytes(in []byte, enc encoding.Encoding) []byte {
 	var w bytes.Buffer
-	p := newTelnetProtocol(testLogFields, nil, &w)
+	p := newTelnetProtocol(ServerType, nil, &w)
 	p.setEncoding(enc)
 	p.finishCharset(nil)
 	p.Write(in)
@@ -178,7 +178,7 @@ func TestWriteCarriageReturn(t *testing.T) {
 
 func TestBuffersWritesUntilCharsetFinished(t *testing.T) {
 	var w bytes.Buffer
-	p := newTelnetProtocol(testLogFields, nil, &w)
+	p := newTelnetProtocol(ServerType, nil, &w)
 	p.Write([]byte("※ hello "))
 	p.setEncoding(Raw)
 	p.finishCharset(nil)

@@ -47,8 +47,8 @@ func ReopenLogs() {
 	})
 }
 
-func StartSession(conn telnet.Conn) {
-	conn.LogEntry().Println("connected")
+func StartSession(conn telnet.Conn, logEntry *log.Entry) {
+	logEntry.Println("connected")
 	conn.NegotiateOptions()
 
 	fmt.Fprintln(conn, motd)
@@ -74,7 +74,7 @@ func StartSession(conn telnet.Conn) {
 		return
 	}
 
-	err = proxy.AddClient(&client{r: r, Conn: conn})
+	err = proxy.AddClient(&client{r: r, Conn: conn, log: logEntry})
 	if err != nil {
 		msg := fmt.Sprintf("error connecting to world %q: %v", proxy.Key, err)
 		log.Println(msg)
@@ -92,6 +92,7 @@ type addClientReq struct {
 type client struct {
 	r io.Reader
 	telnet.Conn
+	log *log.Entry
 }
 
 func (c *client) Read(p []byte) (int, error) {
@@ -118,6 +119,8 @@ type proxy struct {
 	reopenLog   chan chan error
 	writeServer chan writereq
 	writeClient chan writereq
+
+	log *log.Entry
 }
 
 func (p *proxy) AddClient(c *client) error {
@@ -164,7 +167,7 @@ func (p *proxy) ServerWriter() io.Writer {
 	return &writereqWriter{p.writeServer}
 }
 
-func (p *proxy) connect() (conn telnet.Conn, err error) {
+func (p *proxy) connect() (server telnet.Conn, err error) {
 	var enc encoding.Encoding
 	if p.ServerEncoding != "" {
 		// These strings get validated in cmd/root.go when the config is
@@ -172,17 +175,22 @@ func (p *proxy) connect() (conn telnet.Conn, err error) {
 		enc, _ = ianaindex.IANA.Encoding(p.ServerEncoding)
 	}
 
-	tcpconn, err := net.Dial("tcp", p.Address)
+	conn, err := net.Dial("tcp", p.Address)
 	if err != nil {
 		return nil, err
 	}
-	fields := log.Fields{"type": telnet.ServerType, "addr": p.Address}
-	conn = telnet.Wrap(fields, tcpconn)
+	p.log = log.WithFields(log.Fields{
+		"type": telnet.ServerType,
+		"addr": p.Address,
+	})
+
+	server = telnet.Wrap(telnet.ServerType, conn)
+	server.SetLog(p.log)
 
 	if enc != nil {
-		conn.SetEncoding(enc)
+		server.SetEncoding(enc)
 	}
-	conn.LogEntry().Println("connected")
+	p.log.Println("connected")
 
 	if str := p.ConnectString(); str != "" {
 		_, err = fmt.Fprintln(conn, str)
@@ -230,7 +238,7 @@ func (p *proxy) loop(key string) {
 				rawLog.Close()
 			}
 			ch <- server.Close()
-			server.LogEntry().Println("disconnected")
+			p.log.Println("disconnected")
 			return
 
 		case ch := <-p.reopenLog:
@@ -276,7 +284,7 @@ func (p *proxy) loop(key string) {
 			}
 			go func() {
 				io.Copy(p.ServerWriter(), req.c)
-				req.c.LogEntry().Println("disconnected")
+				req.c.log.Println("disconnected")
 			}()
 			clients[req.c] = struct{}{}
 			history.WriteTo(req.c)

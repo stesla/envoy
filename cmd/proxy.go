@@ -61,8 +61,13 @@ func startProxy(cmd *cobra.Command, args []string) {
 			log.Fatal(err)
 		}
 
-		fields := log.Fields{"type": telnet.ClientType, "addr": conn.RemoteAddr()}
-		go proxy.StartSession(telnet.Wrap(fields, conn))
+		logEntry := log.WithFields(log.Fields{
+			"type": telnet.ClientType,
+			"addr": conn.RemoteAddr(),
+		})
+		client := telnet.Wrap(telnet.ClientType, conn)
+		client.SetLog(logEntry)
+		go proxy.StartSession(client, logEntry)
 	}
 
 }
