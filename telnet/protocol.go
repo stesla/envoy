@@ -17,12 +17,12 @@ type telnetProtocol struct {
 	*optionMap
 	sync.RWMutex
 
-	ctype  ConnType
-	fields log.Fields
-	in     io.Reader
-	out    io.Writer
-	state  decodeState
-	enc    encoding.Encoding
+	peerType PeerType
+	fields   log.Fields
+	in       io.Reader
+	out      io.Writer
+	state    decodeState
+	enc      encoding.Encoding
 }
 
 func newTelnetProtocol(fields log.Fields, r io.Reader, w io.Writer) *telnetProtocol {
@@ -33,7 +33,7 @@ func newTelnetProtocol(fields log.Fields, r io.Reader, w io.Writer) *telnetProto
 		state:  decodeByte,
 		enc:    ASCII,
 	}
-	p.ctype = fields["type"].(ConnType)
+	p.peerType = fields["type"].(PeerType)
 	p.optionMap = newOptionMap(p)
 	p.Reader = transform.NewReader(p.in, &telnetDecoder{p: p})
 	p.Writer = new(bytes.Buffer)
@@ -76,7 +76,7 @@ func (p *telnetProtocol) handleCharset(buf []byte) {
 	switch cmd {
 	case charsetRequest:
 		switch {
-		case p.ctype == ClientType:
+		case p.peerType == ClientType:
 			if string(buf) == "UTF-8" {
 				p.finishCharset(unicode.UTF8)
 				return
@@ -143,7 +143,7 @@ func (p *telnetProtocol) notify(o *option) {
 	switch o.code {
 	case Charset:
 		enabled := o.enabledForUs() || o.enabledForThem()
-		if p.ctype == ClientType && enabled {
+		if p.peerType == ClientType && enabled {
 			p.startCharset()
 		} else if !enabled && !(o.negotiatingThem() || o.negotiatingUs()) {
 			p.finishCharset(nil)

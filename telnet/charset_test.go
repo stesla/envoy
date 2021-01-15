@@ -43,7 +43,7 @@ func TestCharsetRejectedFromClientConnection(t *testing.T) {
 	in = append(in, IAC, SE, 'i')
 
 	test := newDecodeTest(in)
-	test.p.ctype = ClientType
+	test.p.peerType = ClientType
 	o := test.p.get(Charset)
 	o.them = telnetQYes
 	r, w, err := test.decode()
@@ -68,7 +68,7 @@ func TestCharsetAcceptedIfItWasSupposedToBeAnAccept(t *testing.T) {
 	in = append(in, IAC, SE, 'i')
 
 	test := newDecodeTest(in)
-	test.p.ctype = ClientType
+	test.p.peerType = ClientType
 	o := test.p.get(Charset)
 	o.them = telnetQYes
 	r, w, err := test.decode()

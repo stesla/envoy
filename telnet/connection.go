@@ -9,11 +9,11 @@ import (
 	"golang.org/x/text/encoding"
 )
 
-type ConnType string
+type PeerType string
 
 const (
-	ServerType ConnType = "server"
-	ClientType ConnType = "client"
+	ServerType PeerType = "server"
+	ClientType PeerType = "client"
 )
 
 type Conn interface {
@@ -79,7 +79,7 @@ func (c *connection) initializeOptions() {
 }
 
 func (c *connection) NegotiateOptions() {
-	switch c.telnetProtocol.ctype {
+	switch c.telnetProtocol.peerType {
 	case ClientType:
 		c.telnetProtocol.get(EndOfRecord).enableThem()
 		c.telnetProtocol.get(EndOfRecord).enableUs()
