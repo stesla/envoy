@@ -32,15 +32,6 @@ type connection struct {
 	*telnetProtocol
 }
 
-func Dial(addr string) (Conn, error) {
-	conn, er := net.Dial("tcp", addr)
-	if er != nil {
-		return nil, er
-	}
-	fields := log.Fields{"type": ServerType, "addr": addr}
-	return Wrap(fields, conn), nil
-}
-
 func Wrap(fields log.Fields, conn net.Conn) Conn {
 	c := newConnection(fields, conn, conn)
 	c.conn = conn

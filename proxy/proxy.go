@@ -6,6 +6,7 @@ import (
 	"envoy/telnet"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path"
 	"strings"
@@ -171,10 +172,13 @@ func (p *proxy) connect() (conn telnet.Conn, err error) {
 		enc, _ = ianaindex.IANA.Encoding(p.ServerEncoding)
 	}
 
-	conn, err = telnet.Dial(p.Address)
+	tcpconn, err := net.Dial("tcp", p.Address)
 	if err != nil {
-		return
+		return nil, err
 	}
+	fields := log.Fields{"type": telnet.ServerType, "addr": p.Address}
+	conn = telnet.Wrap(fields, tcpconn)
+
 	if enc != nil {
 		conn.SetEncoding(enc)
 	}
