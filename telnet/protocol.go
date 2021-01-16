@@ -9,6 +9,7 @@ import (
 )
 
 type Protocol interface {
+	DoSync(func())
 	GetOption(byte) Option
 	Log() Log
 	PeerType() PeerType
@@ -16,7 +17,6 @@ type Protocol interface {
 	SetEncoding(encoding.Encoding)
 	SetWriter(io.Writer) io.Writer
 
-	sync.Locker
 	io.Writer
 }
 
@@ -50,6 +50,12 @@ func newTelnetProtocol(peerType PeerType, r io.Reader, w io.Writer) *telnetProto
 	p.Reader = transform.NewReader(p.in, &telnetDecoder{p: p})
 	p.Writer = transform.NewWriter(p.out, &telnetEncoder{p: p})
 	return p
+}
+
+func (p *telnetProtocol) DoSync(f func()) {
+	p.Lock()
+	defer p.Unlock()
+	f()
 }
 
 func (p *telnetProtocol) getEncoding() encoding.Encoding {

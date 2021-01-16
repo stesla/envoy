@@ -128,11 +128,11 @@ func (c *CharsetOption) sendCharsetRejected() {
 }
 
 func (c *CharsetOption) startCharset() {
-	c.p.Lock()
-	defer c.p.Unlock()
-	c.p.Log().Debug("SENT IAC SB CHARSET REQUEST \";UTF-8;US-ASCII\" IAC SE")
-	out := []byte{IAC, SB, Charset, charsetRequest}
-	out = append(out, []byte(";UTF-8;US-ASCII")...)
-	out = append(out, IAC, SE)
-	c.p.Send(out...)
+	c.p.DoSync(func() {
+		c.p.Log().Debug("SENT IAC SB CHARSET REQUEST \";UTF-8;US-ASCII\" IAC SE")
+		out := []byte{IAC, SB, Charset, charsetRequest}
+		out = append(out, []byte(";UTF-8;US-ASCII")...)
+		out = append(out, IAC, SE)
+		c.p.Send(out...)
+	})
 }
