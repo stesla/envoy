@@ -18,7 +18,7 @@ const (
 type Conn interface {
 	io.ReadWriteCloser
 	Conn() net.Conn
-	NegotiateOptions()
+	GetOption(byte) Option
 	SetEncoding(encoding.Encoding)
 	SetLog(Log)
 	SetRawLogWriter(io.Writer)
@@ -40,7 +40,6 @@ func newConnection(peerType PeerType, r io.Reader, w io.Writer) *connection {
 	raw := &maybeWriter{}
 	r = io.TeeReader(r, raw)
 	c := &connection{raw: raw, telnetProtocol: newTelnetProtocol(peerType, r, w)}
-	c.initializeOptions()
 	return c
 }
 
@@ -54,27 +53,6 @@ func (c *connection) Conn() net.Conn {
 
 func (c *connection) SetEncoding(enc encoding.Encoding) {
 	c.setEncoding(enc)
-}
-
-func (c *connection) initializeOptions() {
-	c.telnetProtocol.get(Charset).allow(true, true)
-	c.telnetProtocol.get(EndOfRecord).allow(true, true)
-	c.telnetProtocol.get(SuppressGoAhead).allow(true, true)
-	c.telnetProtocol.get(TransmitBinary).allow(true, true)
-}
-
-func (c *connection) NegotiateOptions() {
-	switch c.telnetProtocol.peerType {
-	case ClientType:
-		c.telnetProtocol.get(EndOfRecord).enableThem()
-		c.telnetProtocol.get(EndOfRecord).enableUs()
-		c.telnetProtocol.get(SuppressGoAhead).enableThem()
-		c.telnetProtocol.get(SuppressGoAhead).enableUs()
-		fallthrough
-	case ServerType:
-		c.telnetProtocol.get(Charset).enableThem()
-		c.telnetProtocol.get(Charset).enableUs()
-	}
 }
 
 func (c *connection) SetRawLogWriter(w io.Writer) {

@@ -1,5 +1,17 @@
 package telnet
 
+type Option interface {
+	Allow(us, them bool)
+	DisableThem()
+	DisableUs()
+	EnabledForUs() bool
+	EnabledForThem() bool
+	EnableThem()
+	EnableUs()
+	NegotiatingThem() bool
+	NegotiatingUs() bool
+}
+
 type protocol interface {
 	send(...byte) error
 	notify(*option)
@@ -54,15 +66,15 @@ func newOption(c byte, p protocol) *option {
 	}
 }
 
-func (o *option) allow(us, them bool) {
+func (o *option) Allow(us, them bool) {
 	o.allowUs, o.allowThem = us, them
 }
 
-func (o *option) disableThem() {
+func (o *option) DisableThem() {
 	o.disable(&o.them, DONT)
 }
 
-func (o *option) disableUs() {
+func (o *option) DisableUs() {
 	o.disable(&o.us, WONT)
 }
 
@@ -84,19 +96,19 @@ func (o *option) disable(state *telnetQState, cmd byte) {
 	}
 }
 
-func (o *option) enabledForThem() bool {
+func (o *option) EnabledForThem() bool {
 	return telnetQYes == o.them
 }
 
-func (o *option) enabledForUs() bool {
+func (o *option) EnabledForUs() bool {
 	return telnetQYes == o.us
 }
 
-func (o *option) enableThem() {
+func (o *option) EnableThem() {
 	o.enable(&o.them, DO)
 }
 
-func (o *option) enableUs() {
+func (o *option) EnableUs() {
 	o.enable(&o.us, WILL)
 }
 
@@ -118,11 +130,11 @@ func (o *option) enable(state *telnetQState, cmd byte) {
 	}
 }
 
-func (o *option) negotiatingThem() bool {
+func (o *option) NegotiatingThem() bool {
 	return telnetQNo != o.them && telnetQYes != o.them
 }
 
-func (o *option) negotiatingUs() bool {
+func (o *option) NegotiatingUs() bool {
 	return telnetQNo != o.us && telnetQYes != o.us
 }
 

@@ -169,7 +169,7 @@ func TestQMethodAskEnableThem(t *testing.T) {
 	for _, q := range tests {
 		o := newOption(SuppressGoAhead, q)
 		o.them = q.start
-		o.enableThem()
+		o.EnableThem()
 		assert.Equalf(t, q.end, o.them, "expected %s got %s", q.end, o.them)
 		if q.expected != 0 {
 			assert.Equal(t, []byte{IAC, q.expected, SuppressGoAhead}, q.actual)
@@ -189,7 +189,7 @@ func TestQMethodDisableThem(t *testing.T) {
 	for _, q := range tests {
 		o := newOption(SuppressGoAhead, q)
 		o.them = q.start
-		o.disableThem()
+		o.DisableThem()
 		assert.Equalf(t, q.end, o.them, "expected %s got %s", q.end, o.them)
 		if q.expected != 0 {
 			assert.Equal(t, []byte{IAC, q.expected, SuppressGoAhead}, q.actual)
@@ -209,7 +209,7 @@ func TestQMethodEnableUs(t *testing.T) {
 	for _, q := range tests {
 		o := newOption(SuppressGoAhead, q)
 		o.us = q.start
-		o.enableUs()
+		o.EnableUs()
 		assert.Equalf(t, q.end, o.us, "expected %s got %s", q.end, o.us)
 		if q.expected != 0 {
 			assert.Equal(t, []byte{IAC, q.expected, SuppressGoAhead}, q.actual)
@@ -229,7 +229,7 @@ func TestQMethodDisableUs(t *testing.T) {
 	for _, q := range tests {
 		o := newOption(SuppressGoAhead, q)
 		o.us = q.start
-		o.disableUs()
+		o.DisableUs()
 		assert.Equalf(t, q.end, o.us, "expected %s got %s", q.end, o.us)
 		if q.expected != 0 {
 			assert.Equal(t, []byte{IAC, q.expected, SuppressGoAhead}, q.actual)

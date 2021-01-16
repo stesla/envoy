@@ -45,17 +45,21 @@ func (p *telnetProtocol) getEncoding() encoding.Encoding {
 	return p.enc
 }
 
+func (p *telnetProtocol) GetOption(code byte) Option {
+	return p.get(code)
+}
+
 func (p *telnetProtocol) finishCharset(enc encoding.Encoding) {
 	if enc != nil {
 		p.setEncoding(enc)
 
 		opt := p.get(TransmitBinary)
 		if enc == ASCII {
-			opt.disableUs()
-			opt.disableThem()
+			opt.DisableUs()
+			opt.DisableThem()
 		} else {
-			opt.enableUs()
-			opt.enableThem()
+			opt.EnableUs()
+			opt.EnableThem()
 		}
 	}
 	oldw := p.setWriter(transform.NewWriter(p.out, &telnetEncoder{p: p}))
@@ -81,7 +85,7 @@ func (p *telnetProtocol) handleCharset(buf []byte) {
 				return
 			}
 			fallthrough
-		case !opt.enabledForThem() && !opt.enabledForUs():
+		case !opt.EnabledForThem() && !opt.EnabledForUs():
 			p.sendCharsetRejected()
 			return
 		}
@@ -141,10 +145,10 @@ func (p *telnetProtocol) handleSubnegotiation(buf []byte) {
 func (p *telnetProtocol) notify(o *option) {
 	switch o.code {
 	case Charset:
-		enabled := o.enabledForUs() || o.enabledForThem()
+		enabled := o.EnabledForUs() || o.EnabledForThem()
 		if p.peerType == ClientType && enabled {
 			p.startCharset()
-		} else if !enabled && !(o.negotiatingThem() || o.negotiatingUs()) {
+		} else if !enabled && !(o.NegotiatingThem() || o.NegotiatingUs()) {
 			p.finishCharset(nil)
 		}
 	}

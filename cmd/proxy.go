@@ -67,6 +67,17 @@ func startProxy(cmd *cobra.Command, args []string) {
 		})
 		client := telnet.Wrap(telnet.ClientType, conn)
 		client.SetLog(logEntry)
+		client.GetOption(telnet.Charset).Allow(true, true)
+		client.GetOption(telnet.EndOfRecord).Allow(true, true)
+		client.GetOption(telnet.SuppressGoAhead).Allow(true, true)
+		client.GetOption(telnet.TransmitBinary).Allow(true, true)
+		client.GetOption(telnet.EndOfRecord).EnableThem()
+		client.GetOption(telnet.EndOfRecord).EnableUs()
+		client.GetOption(telnet.SuppressGoAhead).EnableThem()
+		client.GetOption(telnet.SuppressGoAhead).EnableUs()
+		client.GetOption(telnet.Charset).EnableThem()
+		client.GetOption(telnet.Charset).EnableUs()
+
 		go proxy.StartSession(client, logEntry)
 	}
 

@@ -49,7 +49,6 @@ func ReopenLogs() {
 
 func StartSession(conn telnet.Conn, logEntry *log.Entry) {
 	logEntry.Println("connected")
-	conn.NegotiateOptions()
 
 	fmt.Fprintln(conn, motd)
 
@@ -186,6 +185,10 @@ func (p *proxy) connect() (server telnet.Conn, err error) {
 
 	server = telnet.Wrap(telnet.ServerType, conn)
 	server.SetLog(p.log)
+	server.GetOption(telnet.Charset).Allow(true, true)
+	server.GetOption(telnet.EndOfRecord).Allow(true, true)
+	server.GetOption(telnet.SuppressGoAhead).Allow(true, true)
+	server.GetOption(telnet.TransmitBinary).Allow(true, true)
 
 	if enc != nil {
 		server.SetEncoding(enc)
@@ -279,7 +282,8 @@ func (p *proxy) loop(key string) {
 					}
 				}
 
-				server.NegotiateOptions()
+				server.GetOption(telnet.Charset).EnableThem()
+				server.GetOption(telnet.Charset).EnableUs()
 				writeServer = p.writeServer
 			}
 			go func() {
