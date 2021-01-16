@@ -1,6 +1,7 @@
 package telnet
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -141,4 +142,16 @@ func TestCharsetRequestOfUTF8Accepted(t *testing.T) {
 	assert.Equal(t, expected, w)
 
 	assert.Equal(t, unicode.UTF8, test.p.enc)
+}
+
+func TestBuffersWritesUntilCharsetFinished(t *testing.T) {
+	var w bytes.Buffer
+	p := newTelnetProtocol(ServerType, nil, &w)
+	h := &CharsetOption{}
+	h.Register(p)
+	p.Write([]byte("※ hello "))
+	p.SetEncoding(Raw)
+	h.finishCharset(nil)
+	p.Write([]byte("※ world ※"))
+	assert.Equal(t, "※ hello ※ world ※", w.String())
 }

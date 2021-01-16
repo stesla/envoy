@@ -147,7 +147,6 @@ func sendBytes(in []byte, enc encoding.Encoding) []byte {
 	var w bytes.Buffer
 	p := newTelnetProtocol(ServerType, nil, &w)
 	p.SetEncoding(enc)
-	p.flushBuffer()
 	p.Write(in)
 	return w.Bytes()
 }
@@ -175,16 +174,6 @@ func TestWriteNewline(t *testing.T) {
 func TestWriteCarriageReturn(t *testing.T) {
 	actual := sendBytes([]byte("foo\rbar"), ASCII)
 	assert.Equal(t, []byte("foo\r\x00bar"), actual)
-}
-
-func TestBuffersWritesUntilCharsetFinished(t *testing.T) {
-	var w bytes.Buffer
-	p := newTelnetProtocol(ServerType, nil, &w)
-	p.Write([]byte("※ hello "))
-	p.SetEncoding(Raw)
-	p.flushBuffer()
-	p.Write([]byte("※ world ※"))
-	assert.Equal(t, "※ hello ※ world ※", w.String())
 }
 
 /***

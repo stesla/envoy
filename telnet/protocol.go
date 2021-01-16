@@ -1,7 +1,6 @@
 package telnet
 
 import (
-	"bytes"
 	"io"
 	"sync"
 
@@ -15,8 +14,10 @@ type Protocol interface {
 	PeerType() PeerType
 	Send(...byte) error
 	SetEncoding(encoding.Encoding)
+	SetWriter(io.Writer) io.Writer
 
 	sync.Locker
+	io.Writer
 }
 
 type telnetProtocol struct {
@@ -47,15 +48,8 @@ func newTelnetProtocol(peerType PeerType, r io.Reader, w io.Writer) *telnetProto
 	p.peerType = peerType
 	p.optionMap = newOptionMap(p)
 	p.Reader = transform.NewReader(p.in, &telnetDecoder{p: p})
-	p.Writer = new(bytes.Buffer)
+	p.Writer = transform.NewWriter(p.out, &telnetEncoder{p: p})
 	return p
-}
-
-func (p *telnetProtocol) flushBuffer() {
-	oldw := p.setWriter(transform.NewWriter(p.out, &telnetEncoder{p: p}))
-	if buf, ok := oldw.(*bytes.Buffer); ok {
-		buf.WriteTo(p)
-	}
 }
 
 func (p *telnetProtocol) getEncoding() encoding.Encoding {
@@ -101,7 +95,7 @@ func (p *telnetProtocol) Send(cmd ...byte) (err error) {
 	return
 }
 
-func (p *telnetProtocol) setWriter(new io.Writer) (old io.Writer) {
+func (p *telnetProtocol) SetWriter(new io.Writer) (old io.Writer) {
 	p.Lock()
 	defer p.Unlock()
 	old = p.Writer

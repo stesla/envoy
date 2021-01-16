@@ -2,6 +2,7 @@ package telnet
 
 import (
 	"bytes"
+	"io"
 
 	"golang.org/x/text/encoding"
 	"golang.org/x/text/encoding/unicode"
@@ -9,6 +10,7 @@ import (
 
 type CharsetOption struct {
 	p Protocol
+	w io.Writer
 }
 
 func (c *CharsetOption) Code() byte { return Charset }
@@ -27,8 +29,10 @@ func (c *CharsetOption) finishCharset(enc encoding.Encoding) {
 		}
 	}
 
-	p := c.p.(*telnetProtocol)
-	p.flushBuffer()
+	oldw := c.p.SetWriter(c.w)
+	if buf, ok := oldw.(*bytes.Buffer); ok {
+		buf.WriteTo(c.p)
+	}
 }
 
 func (c *CharsetOption) HandleSubnegotiation(buf []byte) {
@@ -101,7 +105,10 @@ func (c *CharsetOption) HandleOption(o Option) {
 	}
 }
 
-func (c *CharsetOption) Register(p Protocol) { c.p = p }
+func (c *CharsetOption) Register(p Protocol) {
+	c.p = p
+	c.w = p.SetWriter(new(bytes.Buffer))
+}
 
 func (c *CharsetOption) selectEncoding(names [][]byte) (charset []byte, enc encoding.Encoding) {
 	for _, name := range names {
