@@ -6,11 +6,16 @@ import (
 	"sync"
 
 	"golang.org/x/text/encoding"
-	"golang.org/x/text/encoding/unicode"
 	"golang.org/x/text/transform"
 )
 
 type Protocol interface {
+	GetOption(byte) Option
+	Log() Log
+	PeerType() PeerType
+	Send(...byte) error
+
+	sync.Locker
 }
 
 type telnetProtocol struct {
@@ -87,37 +92,24 @@ func (p *telnetProtocol) handleSubnegotiation(buf []byte) {
 	}
 }
 
+func (p *telnetProtocol) Log() Log { return p.log }
+
 func (p *telnetProtocol) notify(o *option) {
 	if h, ok := p.handlers[o.code]; ok {
 		h.HandleOption(o)
 	}
 }
 
+func (p *telnetProtocol) PeerType() PeerType { return p.peerType }
+
 func (p *telnetProtocol) RegisterHandler(h OptionHandler) {
 	h.Register(p)
 	p.handlers[h.Code()] = h
 }
 
-func (p *telnetProtocol) send(cmd ...byte) (err error) {
+func (p *telnetProtocol) Send(cmd ...byte) (err error) {
 	_, err = p.out.Write(cmd)
 	return
-}
-
-func (p *telnetProtocol) selectEncoding(names [][]byte) (charset []byte, enc encoding.Encoding) {
-	for _, name := range names {
-		switch string(name) {
-		case "UTF-8":
-			return name, unicode.UTF8
-		case "US-ASCII":
-			charset, enc = name, ASCII
-		}
-	}
-	return
-}
-
-func (p *telnetProtocol) sendCharsetRejected() {
-	p.log.Debug("SENT IAC SB CHARSET REJECTED IAC SE")
-	p.send(IAC, SB, Charset, charsetRejected, IAC, SE)
 }
 
 func (p *telnetProtocol) setWriter(new io.Writer) (old io.Writer) {
@@ -137,16 +129,6 @@ func (p *telnetProtocol) setEncoding(enc encoding.Encoding) {
 
 func (p *telnetProtocol) SetLog(log Log) {
 	p.log.log = log
-}
-
-func (p *telnetProtocol) startCharset() {
-	p.Lock()
-	defer p.Unlock()
-	p.log.Debug("SENT IAC SB CHARSET REQUEST \";UTF-8;US-ASCII\" IAC SE")
-	out := []byte{IAC, SB, Charset, charsetRequest}
-	out = append(out, []byte(";UTF-8;US-ASCII")...)
-	out = append(out, IAC, SE)
-	p.send(out...)
 }
 
 type telnetDecoder struct {

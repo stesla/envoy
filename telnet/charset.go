@@ -3,6 +3,7 @@ package telnet
 import (
 	"bytes"
 
+	"golang.org/x/text/encoding"
 	"golang.org/x/text/encoding/unicode"
 )
 
@@ -16,23 +17,23 @@ func (c *CharsetOption) HandleSubnegotiation(buf []byte) {
 	p := c.p.(*telnetProtocol)
 
 	if len(buf) == 0 {
-		p.log.Debug("RECV IAC SB CHARSET IAC SE")
+		c.p.Log().Debug("RECV IAC SB CHARSET IAC SE")
 		return
 	}
 	cmd, buf := buf[0], buf[1:]
-	p.log.Debugf("RECV IAC SB CHARSET %s %q IAC SE", charsetByte(cmd), buf)
-	opt := p.get(Charset)
+	c.p.Log().Debugf("RECV IAC SB CHARSET %s %q IAC SE", charsetByte(cmd), buf)
+	opt := c.p.GetOption(Charset)
 	switch cmd {
 	case charsetRequest:
 		switch {
-		case p.peerType == ClientType:
+		case c.p.PeerType() == ClientType:
 			if string(buf) == "UTF-8" {
 				p.finishCharset(unicode.UTF8)
 				return
 			}
 			fallthrough
 		case !opt.EnabledForThem() && !opt.EnabledForUs():
-			p.sendCharsetRejected()
+			c.sendCharsetRejected()
 			return
 		}
 
@@ -42,25 +43,25 @@ func (c *CharsetOption) HandleSubnegotiation(buf []byte) {
 			buf = buf[len(ttable)+1:]
 		}
 		if len(buf) < 2 {
-			p.sendCharsetRejected()
+			c.sendCharsetRejected()
 			return
 		}
 
-		charset, encoding := p.selectEncoding(bytes.Split(buf[1:], buf[0:1]))
+		charset, encoding := c.selectEncoding(bytes.Split(buf[1:], buf[0:1]))
 		if encoding == nil {
-			p.sendCharsetRejected()
+			c.sendCharsetRejected()
 			return
 		}
 
-		p.log.Debugf("SEND IAC SB CHARSET ACCEPTED %q IAC SE", charset)
+		c.p.Log().Debugf("SEND IAC SB CHARSET ACCEPTED %q IAC SE", charset)
 		cmd := []byte{IAC, SB, Charset, charsetAccepted}
 		cmd = append(cmd, []byte(charset)...)
 		cmd = append(cmd, IAC, SE)
-		p.send(cmd...)
+		c.p.Send(cmd...)
 		p.finishCharset(encoding)
 
 	case charsetAccepted:
-		_, encoding := p.selectEncoding([][]byte{buf})
+		_, encoding := c.selectEncoding([][]byte{buf})
 		if encoding != nil {
 			p.finishCharset(encoding)
 		}
@@ -79,11 +80,38 @@ func (c *CharsetOption) HandleOption(o Option) {
 	p := c.p.(*telnetProtocol)
 
 	enabled := o.EnabledForUs() || o.EnabledForThem()
-	if p.peerType == ClientType && enabled {
-		p.startCharset()
+	if c.p.PeerType() == ClientType && enabled {
+		c.startCharset()
 	} else if !enabled && !(o.NegotiatingThem() || o.NegotiatingUs()) {
 		p.finishCharset(nil)
 	}
 }
 
 func (c *CharsetOption) Register(p Protocol) { c.p = p }
+
+func (c *CharsetOption) selectEncoding(names [][]byte) (charset []byte, enc encoding.Encoding) {
+	for _, name := range names {
+		switch string(name) {
+		case "UTF-8":
+			return name, unicode.UTF8
+		case "US-ASCII":
+			charset, enc = name, ASCII
+		}
+	}
+	return
+}
+
+func (c *CharsetOption) sendCharsetRejected() {
+	c.p.Log().Debug("SENT IAC SB CHARSET REJECTED IAC SE")
+	c.p.Send(IAC, SB, Charset, charsetRejected, IAC, SE)
+}
+
+func (c *CharsetOption) startCharset() {
+	c.p.Lock()
+	defer c.p.Unlock()
+	c.p.Log().Debug("SENT IAC SB CHARSET REQUEST \";UTF-8;US-ASCII\" IAC SE")
+	out := []byte{IAC, SB, Charset, charsetRequest}
+	out = append(out, []byte(";UTF-8;US-ASCII")...)
+	out = append(out, IAC, SE)
+	c.p.Send(out...)
+}

@@ -20,7 +20,7 @@ type OptionHandler interface {
 }
 
 type protocol interface {
-	send(...byte) error
+	Send(...byte) error
 	notify(*option)
 }
 
@@ -91,7 +91,7 @@ func (o *option) disable(state *telnetQState, cmd byte) {
 		// ignore
 	case telnetQYes:
 		*state = telnetQWantNoEmpty
-		o.send(cmd, o.code)
+		o.Send(cmd, o.code)
 	case telnetQWantNoEmpty:
 		// ignore
 	case telnetQWantNoOpposite:
@@ -123,7 +123,7 @@ func (o *option) enable(state *telnetQState, cmd byte) {
 	switch *state {
 	case telnetQNo:
 		*state = telnetQWantYesEmpty
-		o.send(cmd, o.code)
+		o.Send(cmd, o.code)
 	case telnetQYes:
 		// ignore
 	case telnetQWantNoEmpty:
@@ -170,9 +170,9 @@ func (o *option) receiveEnableRequest(state *telnetQState, allowed bool, accept,
 	case telnetQNo:
 		if allowed {
 			*state = telnetQYes
-			o.send(accept, o.code)
+			o.Send(accept, o.code)
 		} else {
-			o.send(reject, o.code)
+			o.Send(reject, o.code)
 		}
 	case telnetQYes:
 		// ignore
@@ -187,7 +187,7 @@ func (o *option) receiveEnableRequest(state *telnetQState, allowed bool, accept,
 		o.notify()
 	case telnetQWantYesOpposite:
 		*state = telnetQWantNoEmpty
-		o.send(reject, o.code)
+		o.Send(reject, o.code)
 	}
 }
 
@@ -197,14 +197,14 @@ func (o *option) receiveDisableDemand(state *telnetQState, accept, reject byte) 
 		// ignore
 	case telnetQYes:
 		*state = telnetQNo
-		o.send(reject, o.code)
+		o.Send(reject, o.code)
 		o.notify()
 	case telnetQWantNoEmpty:
 		*state = telnetQNo
 		o.notify()
 	case telnetQWantNoOpposite:
 		*state = telnetQWantYesEmpty
-		o.send(accept, o.code)
+		o.Send(accept, o.code)
 	case telnetQWantYesEmpty:
 		*state = telnetQNo
 		o.notify()
@@ -214,11 +214,11 @@ func (o *option) receiveDisableDemand(state *telnetQState, accept, reject byte) 
 	}
 }
 
-func (o *option) send(cmd, option byte) {
+func (o *option) Send(cmd, option byte) {
 	if p, ok := o.p.(*telnetProtocol); ok {
 		p.log.Debugf("SENT IAC %s %s", commandByte(cmd), optionByte(option))
 	}
-	o.p.send(IAC, cmd, option)
+	o.p.Send(IAC, cmd, option)
 }
 
 type telnetQState int

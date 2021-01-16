@@ -53,7 +53,7 @@ func (q *qMethodTest) notify(opt *option) {
 	q.notified = opt
 }
 
-func (q *qMethodTest) send(actual ...byte) error {
+func (q *qMethodTest) Send(actual ...byte) error {
 	q.actual = actual
 	return nil
 }
