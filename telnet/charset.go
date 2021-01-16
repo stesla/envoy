@@ -13,9 +13,25 @@ type CharsetOption struct {
 
 func (c *CharsetOption) Code() byte { return Charset }
 
-func (c *CharsetOption) HandleSubnegotiation(buf []byte) {
-	p := c.p.(*telnetProtocol)
+func (c *CharsetOption) finishCharset(enc encoding.Encoding) {
+	if enc != nil {
+		c.p.SetEncoding(enc)
 
+		opt := c.p.GetOption(TransmitBinary)
+		if enc == ASCII {
+			opt.DisableUs()
+			opt.DisableThem()
+		} else {
+			opt.EnableUs()
+			opt.EnableThem()
+		}
+	}
+
+	p := c.p.(*telnetProtocol)
+	p.flushBuffer()
+}
+
+func (c *CharsetOption) HandleSubnegotiation(buf []byte) {
 	if len(buf) == 0 {
 		c.p.Log().Debug("RECV IAC SB CHARSET IAC SE")
 		return
@@ -28,7 +44,7 @@ func (c *CharsetOption) HandleSubnegotiation(buf []byte) {
 		switch {
 		case c.p.PeerType() == ClientType:
 			if string(buf) == "UTF-8" {
-				p.finishCharset(unicode.UTF8)
+				c.finishCharset(unicode.UTF8)
 				return
 			}
 			fallthrough
@@ -58,16 +74,16 @@ func (c *CharsetOption) HandleSubnegotiation(buf []byte) {
 		cmd = append(cmd, []byte(charset)...)
 		cmd = append(cmd, IAC, SE)
 		c.p.Send(cmd...)
-		p.finishCharset(encoding)
+		c.finishCharset(encoding)
 
 	case charsetAccepted:
 		_, encoding := c.selectEncoding([][]byte{buf})
 		if encoding != nil {
-			p.finishCharset(encoding)
+			c.finishCharset(encoding)
 		}
 
 	case charsetRejected:
-		p.finishCharset(nil)
+		c.finishCharset(nil)
 
 	case charsetTTableIs:
 	case charsetTTableRejected:
@@ -77,13 +93,11 @@ func (c *CharsetOption) HandleSubnegotiation(buf []byte) {
 }
 
 func (c *CharsetOption) HandleOption(o Option) {
-	p := c.p.(*telnetProtocol)
-
 	enabled := o.EnabledForUs() || o.EnabledForThem()
 	if c.p.PeerType() == ClientType && enabled {
 		c.startCharset()
 	} else if !enabled && !(o.NegotiatingThem() || o.NegotiatingUs()) {
-		p.finishCharset(nil)
+		c.finishCharset(nil)
 	}
 }
 

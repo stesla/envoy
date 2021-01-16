@@ -47,10 +47,6 @@ func (c *connection) Close() error {
 	return c.conn.Close()
 }
 
-func (c *connection) SetEncoding(enc encoding.Encoding) {
-	c.setEncoding(enc)
-}
-
 func (c *connection) SetRawLogWriter(w io.Writer) {
 	c.raw.SetWriter(w)
 }

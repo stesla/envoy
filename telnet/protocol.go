@@ -14,6 +14,7 @@ type Protocol interface {
 	Log() Log
 	PeerType() PeerType
 	Send(...byte) error
+	SetEncoding(encoding.Encoding)
 
 	sync.Locker
 }
@@ -50,6 +51,13 @@ func newTelnetProtocol(peerType PeerType, r io.Reader, w io.Writer) *telnetProto
 	return p
 }
 
+func (p *telnetProtocol) flushBuffer() {
+	oldw := p.setWriter(transform.NewWriter(p.out, &telnetEncoder{p: p}))
+	if buf, ok := oldw.(*bytes.Buffer); ok {
+		buf.WriteTo(p)
+	}
+}
+
 func (p *telnetProtocol) getEncoding() encoding.Encoding {
 	p.RLock()
 	defer p.RUnlock()
@@ -58,25 +66,6 @@ func (p *telnetProtocol) getEncoding() encoding.Encoding {
 
 func (p *telnetProtocol) GetOption(code byte) Option {
 	return p.get(code)
-}
-
-func (p *telnetProtocol) finishCharset(enc encoding.Encoding) {
-	if enc != nil {
-		p.setEncoding(enc)
-
-		opt := p.get(TransmitBinary)
-		if enc == ASCII {
-			opt.DisableUs()
-			opt.DisableThem()
-		} else {
-			opt.EnableUs()
-			opt.EnableThem()
-		}
-	}
-	oldw := p.setWriter(transform.NewWriter(p.out, &telnetEncoder{p: p}))
-	if buf, ok := oldw.(*bytes.Buffer); ok {
-		buf.WriteTo(p)
-	}
 }
 
 func (p *telnetProtocol) handleSubnegotiation(buf []byte) {
@@ -120,8 +109,8 @@ func (p *telnetProtocol) setWriter(new io.Writer) (old io.Writer) {
 	return
 }
 
-func (p *telnetProtocol) setEncoding(enc encoding.Encoding) {
-	p.log.Tracef("setEncoding(%q)", enc)
+func (p *telnetProtocol) SetEncoding(enc encoding.Encoding) {
+	p.log.Tracef("SetEncoding(%q)", enc)
 	p.Lock()
 	defer p.Unlock()
 	p.enc = enc

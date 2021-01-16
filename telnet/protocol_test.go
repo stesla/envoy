@@ -66,7 +66,7 @@ func TestEscapedIAC(t *testing.T) {
 
 func TestEscapedIACRaw(t *testing.T) {
 	test := newDecodeTest([]byte{'h', IAC, IAC, 'i'})
-	test.p.setEncoding(Raw)
+	test.p.SetEncoding(Raw)
 	r, _, err := test.decode()
 	assert.NoError(t, err)
 	assert.Equal(t, []byte{'h', IAC, 'i'}, r)
@@ -146,8 +146,8 @@ func TestErrorReading(t *testing.T) {
 func sendBytes(in []byte, enc encoding.Encoding) []byte {
 	var w bytes.Buffer
 	p := newTelnetProtocol(ServerType, nil, &w)
-	p.setEncoding(enc)
-	p.finishCharset(nil)
+	p.SetEncoding(enc)
+	p.flushBuffer()
 	p.Write(in)
 	return w.Bytes()
 }
@@ -181,8 +181,8 @@ func TestBuffersWritesUntilCharsetFinished(t *testing.T) {
 	var w bytes.Buffer
 	p := newTelnetProtocol(ServerType, nil, &w)
 	p.Write([]byte("※ hello "))
-	p.setEncoding(Raw)
-	p.finishCharset(nil)
+	p.SetEncoding(Raw)
+	p.flushBuffer()
 	p.Write([]byte("※ world ※"))
 	assert.Equal(t, "※ hello ※ world ※", w.String())
 }
