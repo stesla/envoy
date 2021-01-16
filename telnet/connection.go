@@ -17,7 +17,6 @@ const (
 
 type Conn interface {
 	io.ReadWriteCloser
-	Conn() net.Conn
 	GetOption(byte) Option
 	SetEncoding(encoding.Encoding)
 	SetLog(Log)
@@ -45,10 +44,6 @@ func newConnection(peerType PeerType, r io.Reader, w io.Writer) *connection {
 
 func (c *connection) Close() error {
 	return c.conn.Close()
-}
-
-func (c *connection) Conn() net.Conn {
-	return c.conn
 }
 
 func (c *connection) SetEncoding(enc encoding.Encoding) {
