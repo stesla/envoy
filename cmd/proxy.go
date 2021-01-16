@@ -75,6 +75,8 @@ func startProxy(cmd *cobra.Command, args []string) {
 		client.GetOption(telnet.EndOfRecord).EnableUs()
 		client.GetOption(telnet.SuppressGoAhead).EnableThem()
 		client.GetOption(telnet.SuppressGoAhead).EnableUs()
+
+		client.RegisterHandler(&telnet.CharsetOption{})
 		client.GetOption(telnet.Charset).EnableThem()
 		client.GetOption(telnet.Charset).EnableUs()
 

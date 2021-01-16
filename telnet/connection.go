@@ -18,6 +18,7 @@ const (
 type Conn interface {
 	io.ReadWriteCloser
 	GetOption(byte) Option
+	RegisterHandler(h OptionHandler)
 	SetEncoding(encoding.Encoding)
 	SetLog(Log)
 	SetRawLogWriter(io.Writer)

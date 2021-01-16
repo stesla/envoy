@@ -20,6 +20,7 @@ func newDecodeTest(input []byte) (dt *decodeTest) {
 	dt = &decodeTest{in: input}
 	in := bytes.NewBuffer(dt.in)
 	dt.p = newTelnetProtocol(ServerType, in, &dt.out)
+	dt.p.RegisterHandler(&CharsetOption{})
 	return
 }
 

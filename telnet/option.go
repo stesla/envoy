@@ -12,6 +12,13 @@ type Option interface {
 	NegotiatingUs() bool
 }
 
+type OptionHandler interface {
+	Code() byte
+	HandleSubnegotiation([]byte)
+	HandleOption(Option)
+	Register(Protocol)
+}
+
 type protocol interface {
 	send(...byte) error
 	notify(*option)

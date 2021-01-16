@@ -10,6 +10,9 @@ import (
 	"golang.org/x/text/transform"
 )
 
+type Protocol interface {
+}
+
 type telnetProtocol struct {
 	io.Reader
 	io.Writer
@@ -22,15 +25,18 @@ type telnetProtocol struct {
 	state    decodeState
 	enc      encoding.Encoding
 	log      *maybeLog
+
+	handlers map[byte]OptionHandler
 }
 
 func newTelnetProtocol(peerType PeerType, r io.Reader, w io.Writer) *telnetProtocol {
 	p := &telnetProtocol{
-		in:    r,
-		out:   w,
-		state: decodeByte,
-		enc:   ASCII,
-		log:   &maybeLog{},
+		in:       r,
+		out:      w,
+		state:    decodeByte,
+		enc:      ASCII,
+		log:      &maybeLog{},
+		handlers: map[byte]OptionHandler{},
 	}
 	p.peerType = peerType
 	p.optionMap = newOptionMap(p)
@@ -68,90 +74,28 @@ func (p *telnetProtocol) finishCharset(enc encoding.Encoding) {
 	}
 }
 
-func (p *telnetProtocol) handleCharset(buf []byte) {
-	if len(buf) == 0 {
-		p.log.Debug("RECV IAC SB CHARSET IAC SE")
-		return
-	}
-	cmd, buf := buf[0], buf[1:]
-	p.log.Debugf("RECV IAC SB CHARSET %s %q IAC SE", charsetByte(cmd), buf)
-	opt := p.get(Charset)
-	switch cmd {
-	case charsetRequest:
-		switch {
-		case p.peerType == ClientType:
-			if string(buf) == "UTF-8" {
-				p.finishCharset(unicode.UTF8)
-				return
-			}
-			fallthrough
-		case !opt.EnabledForThem() && !opt.EnabledForUs():
-			p.sendCharsetRejected()
-			return
-		}
-
-		const ttable = "[TTABLE]"
-		if len(buf) > 10 && bytes.HasPrefix(buf, []byte(ttable)) {
-			// strip off the version byte
-			buf = buf[len(ttable)+1:]
-		}
-		if len(buf) < 2 {
-			p.sendCharsetRejected()
-			return
-		}
-
-		charset, encoding := p.selectEncoding(bytes.Split(buf[1:], buf[0:1]))
-		if encoding == nil {
-			p.sendCharsetRejected()
-			return
-		}
-
-		p.log.Debugf("SEND IAC SB CHARSET ACCEPTED %q IAC SE", charset)
-		cmd := []byte{IAC, SB, Charset, charsetAccepted}
-		cmd = append(cmd, []byte(charset)...)
-		cmd = append(cmd, IAC, SE)
-		p.send(cmd...)
-		p.finishCharset(encoding)
-
-	case charsetAccepted:
-		_, encoding := p.selectEncoding([][]byte{buf})
-		if encoding != nil {
-			p.finishCharset(encoding)
-		}
-
-	case charsetRejected:
-		p.finishCharset(nil)
-
-	case charsetTTableIs:
-	case charsetTTableRejected:
-	case charsetTTableAck:
-	case charsetTTableNak:
-	}
-}
-
 func (p *telnetProtocol) handleSubnegotiation(buf []byte) {
 	if len(buf) == 0 {
 		p.log.Debug("RECV IAC SB IAC SE")
 		return
 	}
-	switch opt, buf := buf[0], buf[1:]; opt {
-	case Charset:
-		p.handleCharset(buf)
-	default:
+	opt, buf := buf[0], buf[1:]
+	if h, ok := p.handlers[opt]; ok {
+		h.HandleSubnegotiation(buf)
+	} else {
 		p.log.Debugf("RECV IAC SB %s %q IAC SE", optionByte(opt), buf)
 	}
 }
 
 func (p *telnetProtocol) notify(o *option) {
-	switch o.code {
-	case Charset:
-		enabled := o.EnabledForUs() || o.EnabledForThem()
-		if p.peerType == ClientType && enabled {
-			p.startCharset()
-		} else if !enabled && !(o.NegotiatingThem() || o.NegotiatingUs()) {
-			p.finishCharset(nil)
-		}
+	if h, ok := p.handlers[o.code]; ok {
+		h.HandleOption(o)
 	}
+}
+
+func (p *telnetProtocol) RegisterHandler(h OptionHandler) {
+	h.Register(p)
+	p.handlers[h.Code()] = h
 }
 
 func (p *telnetProtocol) send(cmd ...byte) (err error) {

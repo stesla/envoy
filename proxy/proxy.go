@@ -282,6 +282,7 @@ func (p *proxy) loop(key string) {
 					}
 				}
 
+				server.RegisterHandler(&telnet.CharsetOption{})
 				server.GetOption(telnet.Charset).EnableThem()
 				server.GetOption(telnet.Charset).EnableUs()
 				writeServer = p.writeServer
