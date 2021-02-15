@@ -1,7 +1,7 @@
 package main
 
 import (
-	"envoy/cmd"
+	"github.com/stesla/envoy/cmd"
 )
 
 func main() {

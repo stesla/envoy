@@ -1,12 +1,13 @@
 package cmd
 
 import (
-	"envoy/proxy"
-	"envoy/telnet"
 	"net"
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/stesla/envoy/proxy"
+	"github.com/stesla/envoy/telnet"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"

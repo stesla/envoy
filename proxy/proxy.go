@@ -3,7 +3,6 @@ package proxy
 import (
 	"bufio"
 	"bytes"
-	"envoy/telnet"
 	"fmt"
 	"io"
 	"net"
@@ -12,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/stesla/envoy/telnet"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
