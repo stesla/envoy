@@ -51,7 +51,7 @@ func ReopenLogs() {
 func StartSession(conn telnet.Conn, logEntry *log.Entry) {
 	logEntry.Println("connected")
 
-	fmt.Fprintln(conn, motd)
+	fmt.Fprint(conn, motd)
 
 	r := bufio.NewReader(conn)
 
