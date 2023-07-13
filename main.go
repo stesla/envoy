@@ -51,8 +51,8 @@ func main() {
 			client.BindOption(opt)
 		}
 
-		client.AddListener(telnet.FuncListener{
-			Func: func(_ string, data any) {
+		client.AddListener("update-option", telnet.FuncListener{
+			Func: func(data any) {
 				event, ok := data.(telnet.UpdateOptionEvent)
 				if !ok {
 					return
@@ -66,14 +66,14 @@ func main() {
 			},
 		})
 
-		client.EnableOptionForThem(byte(telnet.SuppressGoAhead), true)
-		client.EnableOptionForUs(byte(telnet.SuppressGoAhead), true)
+		client.EnableOptionForThem(telnet.SuppressGoAhead, true)
+		client.EnableOptionForUs(telnet.SuppressGoAhead, true)
 
-		client.EnableOptionForThem(byte(telnet.TransmitBinary), true)
-		client.EnableOptionForUs(byte(telnet.TransmitBinary), true)
+		client.EnableOptionForThem(telnet.TransmitBinary, true)
+		client.EnableOptionForUs(telnet.TransmitBinary, true)
 
-		client.EnableOptionForThem(byte(telnet.Charset), true)
-		client.EnableOptionForUs(byte(telnet.Charset), true)
+		client.EnableOptionForThem(telnet.Charset, true)
+		client.EnableOptionForUs(telnet.Charset, true)
 
 		for {
 			buf := make([]byte, 1024)
