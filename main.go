@@ -6,7 +6,7 @@ import (
 	"os"
 
 	"github.com/sirupsen/logrus"
-	"github.com/stesla/envoy/proxy"
+	"github.com/stesla/telnet"
 )
 
 var addr = flag.String("addr", getEnvDefault("ENVOY_ADDR", ":4001"), "address on which to listen")
@@ -37,7 +37,15 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		go proxy.StartSession(conn, log)
+		client := telnet.Server(conn)
+		client.SetLogger(&logrusLogger{log})
+		go func(client telnet.Conn) {
+			log.Printf("%s connected", client.RemoteAddr())
+			session := newSession(client)
+			session.negotiateOptions()
+			session.runForever()
+			log.Printf("%s disconnected", client.RemoteAddr())
+		}(client)
 	}
 }
 
@@ -46,4 +54,12 @@ func getEnvDefault(name, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+type logrusLogger struct {
+	log *logrus.Logger
+}
+
+func (l logrusLogger) Logf(fmt string, args ...any) {
+	l.log.Logf(logrus.DebugLevel, fmt, args...)
 }
