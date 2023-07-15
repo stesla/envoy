@@ -9,6 +9,8 @@ import (
 
 type Proxy interface {
 	io.Writer
+
+	AddDownstream(telnet.Conn)
 }
 
 var proxiesMutex sync.Mutex
@@ -16,8 +18,8 @@ var proxies = make(map[string]*proxyImpl)
 
 func ConnectProxy(key string, conn telnet.Conn, addr string, toSend []byte) (Proxy, error) {
 	proxy, isNew := findProxyByKey(key)
+	proxy.AddDownstream(conn)
 	if isNew {
-		proxy.downstreams = append(proxy.downstreams, conn)
 		if err := proxy.connect(addr); err != nil {
 			return nil, err
 		}
@@ -30,6 +32,7 @@ func ConnectProxy(key string, conn telnet.Conn, addr string, toSend []byte) (Pro
 }
 
 type proxyImpl struct {
+	mux         sync.Mutex
 	upstream    telnet.Conn
 	downstreams []telnet.Conn
 }
@@ -44,6 +47,18 @@ func findProxyByKey(key string) (*proxyImpl, bool) {
 	return proxies[key], !found
 }
 
+func removeProxyByKey(key string) {
+	proxiesMutex.Lock()
+	defer proxiesMutex.Unlock()
+	delete(proxies, key)
+}
+
+func (p *proxyImpl) AddDownstream(conn telnet.Conn) {
+	p.mux.Lock()
+	defer p.mux.Unlock()
+	p.downstreams = append(p.downstreams, conn)
+}
+
 func (p *proxyImpl) Write(bytes []byte) (int, error) {
 	return p.upstream.Write(bytes)
 }
@@ -54,12 +69,9 @@ func (p *proxyImpl) connect(addr string) (err error) {
 }
 
 func (p *proxyImpl) runForever(key string) {
+	defer removeProxyByKey(key)
 	defer func() {
-		proxiesMutex.Lock()
-		defer proxiesMutex.Unlock()
-		delete(proxies, key)
-	}()
-	defer func() {
+		p.upstream.Close()
 		for _, downstream := range p.downstreams {
 			downstream.Close()
 		}
@@ -71,11 +83,16 @@ func (p *proxyImpl) runForever(key string) {
 			return
 		}
 		buf = buf[:n]
+		i := 0
 		for _, downstream := range p.downstreams {
-			if _, err := downstream.Write(buf); err != nil {
-				p.upstream.Close()
-				return
+			if _, err := downstream.Write(buf); err == nil {
+				p.downstreams[i] = downstream
+				i++
 			}
 		}
+		for j := i; j < len(p.downstreams); j++ {
+			p.downstreams[j] = nil
+		}
+		p.downstreams = p.downstreams[:i]
 	}
 }
