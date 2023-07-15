@@ -25,14 +25,13 @@ func (s *session) negotiateOptions() {
 
 	s.AddListener("update-option", telnet.FuncListener{
 		Func: func(data any) {
-			event, ok := data.(telnet.UpdateOptionEvent)
-			if !ok {
-				return
-			}
-			switch opt := event.Option; opt.Byte() {
-			case telnet.Charset:
-				if event.WeChanged && opt.EnabledForUs() {
-					s.RequestEncoding(unicode.UTF8)
+			switch t := data.(type) {
+			case telnet.UpdateOptionEvent:
+				switch opt := t.Option; opt.Byte() {
+				case telnet.Charset:
+					if t.WeChanged && opt.EnabledForUs() {
+						s.RequestEncoding(unicode.UTF8)
+					}
 				}
 			}
 		},
