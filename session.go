@@ -1,16 +1,30 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
+	"fmt"
+	"io"
+	"strings"
+
 	"github.com/stesla/telnet"
 	"golang.org/x/text/encoding/unicode"
 )
 
 type session struct {
 	telnet.Conn
+	*bufio.Scanner
+
+	password string
 }
 
-func newSession(client telnet.Conn) *session {
-	return &session{client}
+func newSession(client telnet.Conn, password string) *session {
+	session := &session{
+		Conn:     client,
+		password: password,
+	}
+	session.Scanner = bufio.NewScanner(session)
+	return session
 }
 
 func (s *session) negotiateOptions() {
@@ -48,17 +62,43 @@ func (s *session) negotiateOptions() {
 }
 
 func (s *session) runForever() {
-	for {
-		buf := make([]byte, 1024)
-		n, err := s.Read(buf)
-		if err != nil {
-			break
-		}
-		buf = buf[:n]
-		buf = append([]byte("ECHO: "), buf...)
-		_, err = s.Write(buf)
-		if err != nil {
-			break
+	if !s.isAuthenticated() {
+		return
+	}
+	proxy, err := s.connectProxy()
+	if err != nil {
+		fmt.Fprintln(s, "error connecting upstream:", err)
+		return
+	}
+	io.Copy(proxy, s)
+}
+
+func (s *session) connectProxy() (Proxy, error) {
+	var buf bytes.Buffer
+	for s.Scan() {
+		line := s.Text()
+		if strings.HasPrefix(line, "connect ") {
+			args := strings.Fields(strings.TrimPrefix(line, "connect "))
+			if len(args) != 2 {
+				fmt.Fprintln(s, "USAGE: connect KEY ADDR")
+				continue
+			}
+			key, addr := args[0], args[1]
+			fmt.Fprintln(s, "connect", key, addr, fmt.Sprintf("%q", buf.String()))
+			return ConnectProxy(key, s, addr, buf.Bytes())
+		} else if strings.HasPrefix(line, "send ") {
+			line = strings.TrimPrefix(line, "send ")
+			fmt.Fprintln(&buf, line)
 		}
 	}
+	// the only case where we ever get here is if we fail to scan, which will
+	// only happen if the client disconnected
+	return nil, io.EOF
+}
+
+func (s *session) isAuthenticated() bool {
+	if s.Scan() {
+		return s.Text() == "login "+s.password
+	}
+	return false
 }

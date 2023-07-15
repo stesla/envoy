@@ -11,6 +11,7 @@ import (
 
 var addr = flag.String("addr", getEnvDefault("ENVOY_ADDR", ":4001"), "address on which to listen")
 var loglevel = flag.String("level", getEnvDefault("ENVOY_LOG_LEVEL", "info"), "log level")
+var password = flag.String("password", os.Getenv("ENVOY_PASSWORD"), "password for server access")
 
 var log = logrus.New()
 
@@ -18,6 +19,10 @@ func main() {
 	flag.Parse()
 
 	log.SetFormatter(new(logrus.TextFormatter))
+
+	if *password == "" {
+		log.Fatalln("must provide -password or set ENVOY_PASSWORD")
+	}
 
 	level, err := logrus.ParseLevel(*loglevel)
 	if err != nil {
@@ -40,8 +45,9 @@ func main() {
 		client := telnet.Server(conn)
 		client.SetLogger(&logrusLogger{log})
 		go func(client telnet.Conn) {
+			defer client.Close()
 			log.Printf("%s connected", client.RemoteAddr())
-			session := newSession(client)
+			session := newSession(client, *password)
 			session.negotiateOptions()
 			session.runForever()
 			log.Printf("%s disconnected", client.RemoteAddr())
