@@ -36,7 +36,7 @@ func ConnectProxy(key string, conn telnet.Conn, addr string, toSend []byte) (Pro
 type proxyImpl struct {
 	mux         sync.Mutex
 	upstream    telnet.Conn
-	downstreams []telnet.Conn
+	downstreams []io.WriteCloser
 }
 
 func findProxyByKey(key string) (*proxyImpl, bool) {
