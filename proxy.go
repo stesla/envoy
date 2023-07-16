@@ -28,12 +28,13 @@ func ConnectProxy(key string, conn telnet.Conn, addr string, toSend []byte) (Pro
 		if log, err := openLogFile(key); err != nil {
 			return nil, err
 		} else {
-			proxy.AddDownstream(log)
+			proxy.log = log
 		}
 
 		if err := proxy.connect(addr); err != nil {
 			return nil, err
 		}
+
 		if _, err := proxy.Write(toSend); err != nil {
 			return nil, err
 		}
@@ -55,6 +56,7 @@ func openLogFile(key string) (io.WriteCloser, error) {
 
 type proxyImpl struct {
 	mux         sync.Mutex
+	log         io.WriteCloser
 	upstream    telnet.Conn
 	downstreams []io.WriteCloser
 }
@@ -92,10 +94,21 @@ func (p *proxyImpl) connect(addr string) (err error) {
 	}
 	p.upstream.SetLogger(newLogrusLogger(log, logrus.Fields{
 		"type": "server",
-		"peer": p.upstream.RemoteAddr().String(),
+		"peer": addr,
 	}))
 	p.negotiateOptions()
 	return
+}
+
+func (p *proxyImpl) Close() error {
+	p.mux.Lock()
+	defer p.mux.Unlock()
+	p.upstream.Close()
+	for _, downstream := range p.downstreams {
+		downstream.Close()
+	}
+	p.log.Close()
+	return nil
 }
 
 func (p *proxyImpl) negotiateOptions() {
@@ -134,12 +147,7 @@ func (p *proxyImpl) negotiateOptions() {
 
 func (p *proxyImpl) runForever(key string) {
 	defer removeProxyByKey(key)
-	defer func() {
-		p.upstream.Close()
-		for _, downstream := range p.downstreams {
-			downstream.Close()
-		}
-	}()
+	defer p.Close()
 	for {
 		var buf = make([]byte, 4096)
 		n, err := p.upstream.Read(buf)
@@ -147,16 +155,35 @@ func (p *proxyImpl) runForever(key string) {
 			return
 		}
 		buf = buf[:n]
-		i := 0
-		for _, downstream := range p.downstreams {
-			if _, err := downstream.Write(buf); err == nil {
-				p.downstreams[i] = downstream
-				i++
-			}
+
+		if _, err := p.writeLog(buf); err != nil {
+			// if we can't write to the log, we don't want to receive any
+			// more output from the server
+			return
 		}
-		for j := i; j < len(p.downstreams); j++ {
-			p.downstreams[j] = nil
-		}
-		p.downstreams = p.downstreams[:i]
+
+		p.sendDownstream(buf)
 	}
+}
+
+func (p *proxyImpl) sendDownstream(buf []byte) {
+	p.mux.Lock()
+	defer p.mux.Unlock()
+	i := 0
+	for _, downstream := range p.downstreams {
+		if _, err := downstream.Write(buf); err == nil {
+			p.downstreams[i] = downstream
+			i++
+		}
+	}
+	for j := i; j < len(p.downstreams); j++ {
+		p.downstreams[j] = nil
+	}
+	p.downstreams = p.downstreams[:i]
+}
+
+func (p *proxyImpl) writeLog(buf []byte) (int, error) {
+	p.mux.Lock()
+	defer p.mux.Unlock()
+	return p.log.Write(buf)
 }
