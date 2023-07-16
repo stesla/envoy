@@ -12,6 +12,7 @@ import (
 var addr = flag.String("addr", getEnvDefault("ENVOY_ADDR", ":4001"), "address on which to listen")
 var loglevel = flag.String("level", getEnvDefault("ENVOY_LOG_LEVEL", "info"), "log level")
 var password = flag.String("password", os.Getenv("ENVOY_PASSWORD"), "password for server access")
+var logdir = flag.String("logdir", getEnvDefault("ENVOY_LOG_DIR", "./logs"), "directory into which logs should be saved")
 
 var log = logrus.New()
 

@@ -1,8 +1,12 @@
 package main
 
 import (
+	"fmt"
 	"io"
+	"os"
+	"path"
 	"sync"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stesla/telnet"
@@ -12,7 +16,7 @@ import (
 type Proxy interface {
 	io.Writer
 
-	AddDownstream(telnet.Conn)
+	AddDownstream(io.WriteCloser)
 }
 
 var proxiesMutex sync.Mutex
@@ -20,8 +24,13 @@ var proxies = make(map[string]*proxyImpl)
 
 func ConnectProxy(key string, conn telnet.Conn, addr string, toSend []byte) (Proxy, error) {
 	proxy, isNew := findProxyByKey(key)
-	proxy.AddDownstream(conn)
 	if isNew {
+		if log, err := openLogFile(key); err != nil {
+			return nil, err
+		} else {
+			proxy.AddDownstream(log)
+		}
+
 		if err := proxy.connect(addr); err != nil {
 			return nil, err
 		}
@@ -30,7 +39,18 @@ func ConnectProxy(key string, conn telnet.Conn, addr string, toSend []byte) (Pro
 		}
 		go proxy.runForever(key)
 	}
+	proxy.AddDownstream(conn)
 	return proxy, nil
+}
+
+func openLogFile(key string) (io.WriteCloser, error) {
+	timestr := time.Now().Format("2006-01-02")
+	name := fmt.Sprintf("%s-%s.log", timestr, key)
+	return os.OpenFile(
+		path.Join(*logdir, name),
+		os.O_APPEND|os.O_CREATE|os.O_WRONLY,
+		0644,
+	)
 }
 
 type proxyImpl struct {
@@ -55,10 +75,10 @@ func removeProxyByKey(key string) {
 	delete(proxies, key)
 }
 
-func (p *proxyImpl) AddDownstream(conn telnet.Conn) {
+func (p *proxyImpl) AddDownstream(downstream io.WriteCloser) {
 	p.mux.Lock()
 	defer p.mux.Unlock()
-	p.downstreams = append(p.downstreams, conn)
+	p.downstreams = append(p.downstreams, downstream)
 }
 
 func (p *proxyImpl) Write(bytes []byte) (int, error) {
