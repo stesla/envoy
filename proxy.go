@@ -4,7 +4,9 @@ import (
 	"io"
 	"sync"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stesla/telnet"
+	"golang.org/x/text/encoding/unicode"
 )
 
 type Proxy interface {
@@ -65,7 +67,49 @@ func (p *proxyImpl) Write(bytes []byte) (int, error) {
 
 func (p *proxyImpl) connect(addr string) (err error) {
 	p.upstream, err = telnet.Dial(addr)
+	if err != nil {
+		return
+	}
+	p.upstream.SetLogger(newLogrusLogger(log, logrus.Fields{
+		"type": "server",
+		"peer": p.upstream.RemoteAddr().String(),
+	}))
+	p.negotiateOptions()
 	return
+}
+
+func (p *proxyImpl) negotiateOptions() {
+	for _, opt := range []telnet.Option{
+		telnet.NewSuppressGoAheadOption(),
+		telnet.NewTransmitBinaryOption(),
+		telnet.NewCharsetOption(),
+	} {
+		opt.Allow(true, true)
+		p.upstream.BindOption(opt)
+	}
+
+	p.upstream.AddListener("update-option", telnet.FuncListener{
+		Func: func(data any) {
+			switch t := data.(type) {
+			case telnet.UpdateOptionEvent:
+				switch opt := t.Option; opt.Byte() {
+				case telnet.Charset:
+					if t.WeChanged && opt.EnabledForUs() {
+						p.upstream.RequestEncoding(unicode.UTF8)
+					}
+				}
+			}
+		},
+	})
+
+	p.upstream.EnableOptionForThem(telnet.SuppressGoAhead, true)
+	p.upstream.EnableOptionForUs(telnet.SuppressGoAhead, true)
+
+	p.upstream.EnableOptionForThem(telnet.TransmitBinary, true)
+	p.upstream.EnableOptionForUs(telnet.TransmitBinary, true)
+
+	p.upstream.EnableOptionForThem(telnet.Charset, true)
+	p.upstream.EnableOptionForUs(telnet.Charset, true)
 }
 
 func (p *proxyImpl) runForever(key string) {

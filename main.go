@@ -43,7 +43,10 @@ func main() {
 			log.Fatal(err)
 		}
 		client := telnet.Server(conn)
-		client.SetLogger(&logrusLogger{log})
+		client.SetLogger(newLogrusLogger(log, logrus.Fields{
+			"type": "client",
+			"peer": client.RemoteAddr().String(),
+		}))
 		go func(client telnet.Conn) {
 			defer client.Close()
 			log.Printf("%s connected", client.RemoteAddr())
@@ -60,12 +63,4 @@ func getEnvDefault(name, defaultValue string) string {
 		return value
 	}
 	return defaultValue
-}
-
-type logrusLogger struct {
-	log *logrus.Logger
-}
-
-func (l logrusLogger) Logf(fmt string, args ...any) {
-	l.log.Logf(logrus.DebugLevel, fmt, args...)
 }
