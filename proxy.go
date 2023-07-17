@@ -39,19 +39,18 @@ func ConnectProxy(key string, conn telnet.Conn, addr string, toSend []byte) (Pro
 			return nil, err
 		}
 		go proxy.runForever(key)
+	} else {
+		buf, err := readHistory(key)
+		if err != nil {
+			return nil, err
+		}
+		_, err = conn.Write(buf)
+		if err != nil {
+			return nil, err
+		}
 	}
 	proxy.AddDownstream(conn)
 	return proxy, nil
-}
-
-func openLogFile(key string) (io.WriteCloser, error) {
-	timestr := time.Now().Format("2006-01-02")
-	name := fmt.Sprintf("%s-%s.log", timestr, key)
-	return os.OpenFile(
-		path.Join(*logdir, name),
-		os.O_APPEND|os.O_CREATE|os.O_WRONLY,
-		0644,
-	)
 }
 
 type proxyImpl struct {
@@ -186,4 +185,48 @@ func (p *proxyImpl) writeLog(buf []byte) (int, error) {
 	p.mux.Lock()
 	defer p.mux.Unlock()
 	return p.log.Write(buf)
+}
+
+func openLogFile(key string) (io.WriteCloser, error) {
+	return os.OpenFile(
+		logFileName(key),
+		os.O_APPEND|os.O_CREATE|os.O_WRONLY,
+		0644,
+	)
+}
+
+func logFileName(key string) string {
+	return path.Join(
+		*logdir,
+		fmt.Sprintf("%s-%s.log", time.Now().Format("2006-01-02"), key),
+	)
+}
+
+const historySize = 20 * 1024 // about 256 lines of text
+
+func readHistory(key string) ([]byte, error) {
+	file, err := os.Open(logFileName(key))
+	if err != nil {
+		return nil, err
+	}
+	end, err := file.Seek(0, io.SeekEnd)
+	if err != nil {
+		return nil, err
+	}
+	_, err = file.Seek(0, io.SeekStart)
+	if err != nil {
+		return nil, err
+	}
+	if end > historySize {
+		_, err = file.Seek(end-historySize, io.SeekCurrent)
+		if err != nil {
+			return nil, err
+		}
+	}
+	buf := make([]byte, historySize)
+	n, err := file.Read(buf)
+	if err != nil && err != io.EOF {
+		return nil, err
+	}
+	return buf[:n], nil
 }
