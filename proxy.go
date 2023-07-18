@@ -25,6 +25,14 @@ type Proxy interface {
 var proxiesMutex sync.Mutex
 var proxies = make(map[string]*proxyImpl)
 
+func CloseAll() {
+	proxiesMutex.Lock()
+	defer proxiesMutex.Unlock()
+	for _, proxy := range proxies {
+		proxy.Close()
+	}
+}
+
 func ConnectProxy(key string, conn telnet.Conn, addr string, toSend []byte) (Proxy, error) {
 	proxy, isNew := findProxyByKey(key)
 	if isNew {

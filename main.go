@@ -40,14 +40,25 @@ func main() {
 	}
 	defer l.Close()
 
-	signal.Ignore(syscall.SIGHUP)
+	signal.Ignore(os.Interrupt, syscall.SIGHUP, syscall.SIGTERM)
 
-	sighupch := make(chan os.Signal, 1)
-	signal.Notify(sighupch, syscall.SIGHUP)
+	chReopenLogs := make(chan os.Signal, 1)
+	signal.Notify(chReopenLogs, syscall.SIGHUP)
 	go func() {
-		for range sighupch {
+		for range chReopenLogs {
 			log.Printf("reopening logs")
 			ReopenLogFiles()
+		}
+	}()
+
+	chExit := make(chan os.Signal, 1)
+	signal.Notify(chExit, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		for range chExit {
+			sig := <-chExit
+			log.Infof("received signal '%s', exiting", sig)
+			CloseAll()
+			os.Exit(0)
 		}
 	}()
 
