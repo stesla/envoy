@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"strings"
 	"sync"
 	"time"
 
@@ -185,6 +186,8 @@ func (p *proxyImpl) negotiateOptions() {
 	p.upstream.EnableOptionForUs(telnet.Charset, true)
 }
 
+const bannerLogOpened = "--------------- opened"
+
 func (p *proxyImpl) openLog() error {
 	log, err := os.OpenFile(
 		p.logFileName(),
@@ -198,7 +201,7 @@ func (p *proxyImpl) openLog() error {
 	p.log = log
 	p.mux.Unlock()
 	t := time.Now()
-	fmt.Fprintf(p.log, "--------------- opened - %s ---------------\n", t.Format(logSepFormat))
+	fmt.Fprintf(p.log, bannerLogOpened+" - %s ---------------\n", t.Format(logSepFormat))
 	return err
 }
 
@@ -226,7 +229,21 @@ func (p *proxyImpl) readHistory() ([]byte, error) {
 	if err != nil && err != io.EOF {
 		return nil, err
 	}
-	return buf[:n], nil
+	buf = buf[:n]
+	log.Print("read history: len(buf) before:", len(buf))
+	for {
+		i := strings.Index(string(buf), bannerLogOpened)
+		log.Print("read history: i = ", i)
+		if i > 0 {
+			buf = buf[i:]
+			i := strings.Index(string(buf), "\n")
+			buf = buf[i+1:]
+		} else {
+			break
+		}
+	}
+	log.Print("read history: len(buf) after:", len(buf))
+	return buf, nil
 }
 
 func (p *proxyImpl) reopenLog() error {
