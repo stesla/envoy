@@ -4,7 +4,7 @@ go 1.20
 
 require (
 	github.com/sirupsen/logrus v1.9.3
-	github.com/stesla/telnet v0.2.0
+	github.com/stesla/telnet v0.3.0
 	golang.org/x/text v0.11.0
 )
 

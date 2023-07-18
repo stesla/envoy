@@ -7,10 +7,8 @@ github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZb
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/sirupsen/logrus v1.9.3 h1:dueUQJ1C2q9oE3F7wvmSGAaVtTmUizReu6fjN8uqzbQ=
 github.com/sirupsen/logrus v1.9.3/go.mod h1:naHLuLoDiP4jHNo9R0sCBMtWGeIprob74mVsIT4qYEQ=
-github.com/stesla/telnet v0.1.0 h1:ZYw7mOwffGMjE/ts6kS0CYEpSsXknMRl1WAwCsy4LZo=
-github.com/stesla/telnet v0.1.0/go.mod h1:ytGnHzD0//3Y322aqKip+xtvh+dhdBfB3jl2LDGc82I=
-github.com/stesla/telnet v0.2.0 h1:pIofLCXUGt/au/oXd2SSP9ZPhukVsZGIBYEf20YNX1Q=
-github.com/stesla/telnet v0.2.0/go.mod h1:ytGnHzD0//3Y322aqKip+xtvh+dhdBfB3jl2LDGc82I=
+github.com/stesla/telnet v0.3.0 h1:dJxojZFtBl/VXZR56xUO8RQALirUTVVNk+IqohYZw9k=
+github.com/stesla/telnet v0.3.0/go.mod h1:ytGnHzD0//3Y322aqKip+xtvh+dhdBfB3jl2LDGc82I=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
 github.com/stretchr/testify v1.7.0 h1:nwc3DEeHmmLAfoZucVR881uASk0Mfjw8xYJ99tb5CcY=
 github.com/stretchr/testify v1.7.0/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
