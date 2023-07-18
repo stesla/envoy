@@ -4,6 +4,8 @@ import (
 	"flag"
 	"net"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stesla/telnet"
@@ -37,6 +39,17 @@ func main() {
 		log.Fatal(err)
 	}
 	defer l.Close()
+
+	signal.Ignore(syscall.SIGHUP)
+
+	sighupch := make(chan os.Signal, 1)
+	signal.Notify(sighupch, syscall.SIGHUP)
+	go func() {
+		for range sighupch {
+			log.Printf("reopening logs")
+			ReopenLogFiles()
+		}
+	}()
 
 	for {
 		conn, err := l.Accept()

@@ -13,6 +13,9 @@ import (
 	"golang.org/x/text/encoding/unicode"
 )
 
+const historySize = 20 * 1024 // about 256 lines of text
+const logSepFormat = "2006-01-02 15:04:05 -0700 MST"
+
 type Proxy interface {
 	io.Writer
 
@@ -25,22 +28,18 @@ var proxies = make(map[string]*proxyImpl)
 func ConnectProxy(key string, conn telnet.Conn, addr string, toSend []byte) (Proxy, error) {
 	proxy, isNew := findProxyByKey(key)
 	if isNew {
-		if log, err := openLogFile(key); err != nil {
+		if err := proxy.openLog(); err != nil {
 			return nil, err
-		} else {
-			proxy.log = log
 		}
-
 		if err := proxy.connect(addr); err != nil {
 			return nil, err
 		}
-
 		if _, err := proxy.Write(toSend); err != nil {
 			return nil, err
 		}
-		go proxy.runForever(key)
+		go proxy.runForever()
 	} else {
-		buf, err := readHistory(key)
+		buf, err := proxy.readHistory()
 		if err != nil {
 			return nil, err
 		}
@@ -53,7 +52,16 @@ func ConnectProxy(key string, conn telnet.Conn, addr string, toSend []byte) (Pro
 	return proxy, nil
 }
 
+func ReopenLogFiles() {
+	proxiesMutex.Lock()
+	defer proxiesMutex.Unlock()
+	for _, proxy := range proxies {
+		proxy.reopenLog()
+	}
+}
+
 type proxyImpl struct {
+	key         string
 	mux         sync.Mutex
 	log         io.WriteCloser
 	upstream    telnet.Conn
@@ -65,7 +73,7 @@ func findProxyByKey(key string) (*proxyImpl, bool) {
 	defer proxiesMutex.Unlock()
 	_, found := proxies[key]
 	if !found {
-		proxies[key] = &proxyImpl{}
+		proxies[key] = &proxyImpl{key: key}
 	}
 	return proxies[key], !found
 }
@@ -100,14 +108,39 @@ func (p *proxyImpl) connect(addr string) (err error) {
 }
 
 func (p *proxyImpl) Close() error {
+	p.closeUpstream()
+	p.closeDownstreams()
+	p.closeLog()
+	return nil
+}
+
+func (p *proxyImpl) closeDownstreams() {
 	p.mux.Lock()
 	defer p.mux.Unlock()
-	p.upstream.Close()
 	for _, downstream := range p.downstreams {
 		downstream.Close()
 	}
+}
+
+func (p *proxyImpl) closeLog() {
+	p.mux.Lock()
+	defer p.mux.Unlock()
+	t := time.Now()
+	fmt.Fprintf(p.log, "--------------- closed - %s ---------------\n", t.Format(logSepFormat))
 	p.log.Close()
-	return nil
+}
+
+func (p *proxyImpl) closeUpstream() {
+	p.mux.Lock()
+	defer p.mux.Unlock()
+	p.upstream.Close()
+}
+
+func (p *proxyImpl) logFileName() string {
+	return path.Join(
+		*logdir,
+		fmt.Sprintf("%s-%s.log", time.Now().Format("2006-01-02"), p.key),
+	)
 }
 
 func (p *proxyImpl) negotiateOptions() {
@@ -144,8 +177,57 @@ func (p *proxyImpl) negotiateOptions() {
 	p.upstream.EnableOptionForUs(telnet.Charset, true)
 }
 
-func (p *proxyImpl) runForever(key string) {
-	defer removeProxyByKey(key)
+func (p *proxyImpl) openLog() error {
+	log, err := os.OpenFile(
+		p.logFileName(),
+		os.O_APPEND|os.O_CREATE|os.O_WRONLY,
+		0644,
+	)
+	if err != nil {
+		return err
+	}
+	p.mux.Lock()
+	p.log = log
+	p.mux.Unlock()
+	t := time.Now()
+	fmt.Fprintf(p.log, "--------------- opened - %s ---------------\n", t.Format(logSepFormat))
+	return err
+}
+
+func (p *proxyImpl) readHistory() ([]byte, error) {
+	file, err := os.Open(p.logFileName())
+	if err != nil {
+		return nil, err
+	}
+	end, err := file.Seek(0, io.SeekEnd)
+	if err != nil {
+		return nil, err
+	}
+	_, err = file.Seek(0, io.SeekStart)
+	if err != nil {
+		return nil, err
+	}
+	if end > historySize {
+		_, err = file.Seek(end-historySize, io.SeekCurrent)
+		if err != nil {
+			return nil, err
+		}
+	}
+	buf := make([]byte, historySize)
+	n, err := file.Read(buf)
+	if err != nil && err != io.EOF {
+		return nil, err
+	}
+	return buf[:n], nil
+}
+
+func (p *proxyImpl) reopenLog() error {
+	p.closeLog()
+	return p.openLog()
+}
+
+func (p *proxyImpl) runForever() {
+	defer removeProxyByKey(p.key)
 	defer p.Close()
 	for {
 		var buf = make([]byte, 4096)
@@ -185,48 +267,4 @@ func (p *proxyImpl) writeLog(buf []byte) (int, error) {
 	p.mux.Lock()
 	defer p.mux.Unlock()
 	return p.log.Write(buf)
-}
-
-func openLogFile(key string) (io.WriteCloser, error) {
-	return os.OpenFile(
-		logFileName(key),
-		os.O_APPEND|os.O_CREATE|os.O_WRONLY,
-		0644,
-	)
-}
-
-func logFileName(key string) string {
-	return path.Join(
-		*logdir,
-		fmt.Sprintf("%s-%s.log", time.Now().Format("2006-01-02"), key),
-	)
-}
-
-const historySize = 20 * 1024 // about 256 lines of text
-
-func readHistory(key string) ([]byte, error) {
-	file, err := os.Open(logFileName(key))
-	if err != nil {
-		return nil, err
-	}
-	end, err := file.Seek(0, io.SeekEnd)
-	if err != nil {
-		return nil, err
-	}
-	_, err = file.Seek(0, io.SeekStart)
-	if err != nil {
-		return nil, err
-	}
-	if end > historySize {
-		_, err = file.Seek(end-historySize, io.SeekCurrent)
-		if err != nil {
-			return nil, err
-		}
-	}
-	buf := make([]byte, historySize)
-	n, err := file.Read(buf)
-	if err != nil && err != io.EOF {
-		return nil, err
-	}
-	return buf[:n], nil
 }
