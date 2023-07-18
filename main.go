@@ -63,23 +63,23 @@ func main() {
 	}()
 
 	for {
-		conn, err := l.Accept()
+		tcpconn, err := l.Accept()
 		if err != nil {
 			log.Fatal(err)
 		}
-		client := telnet.Server(conn)
-		client.SetLogger(newLogrusLogger(log, logrus.Fields{
+		conn := telnet.Server(tcpconn)
+		conn.SetLogger(newLogrusLogger(log, logrus.Fields{
 			"type": "client",
-			"peer": client.RemoteAddr().String(),
+			"peer": conn.RemoteAddr().String(),
 		}))
-		go func(client telnet.Conn) {
-			defer client.Close()
-			log.Printf("%s connected", client.RemoteAddr())
-			session := newSession(client, *password)
+		go func() {
+			defer conn.Close()
+			log.Printf("%s connected", conn.RemoteAddr())
+			session := newSession(conn, *password)
 			session.negotiateOptions()
 			session.runForever()
-			log.Printf("%s disconnected", client.RemoteAddr())
-		}(client)
+			log.Printf("%s disconnected", conn.RemoteAddr())
+		}()
 	}
 }
 
