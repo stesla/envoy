@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stesla/telnet"
 	"golang.org/x/text/encoding/unicode"
 )
@@ -15,6 +16,7 @@ type session struct {
 	telnet.Conn
 	*bufio.Scanner
 
+	log      *logrusLogger
 	password string
 }
 
@@ -22,7 +24,12 @@ func newSession(client telnet.Conn, password string) *session {
 	session := &session{
 		Conn:     client,
 		password: password,
+		log: newLogrusLogger(log, logrus.Fields{
+			"type": "client",
+			"peer": client.RemoteAddr().String(),
+		}),
 	}
+	session.Conn.SetLogger(session.log)
 	session.Scanner = bufio.NewScanner(session)
 	return session
 }
@@ -101,4 +108,12 @@ func (s *session) isAuthenticated() bool {
 		return s.Text() == "login "+s.password
 	}
 	return false
+}
+
+func (s *session) Read(bytes []byte) (n int, err error) {
+	return s.log.traceIO("Read", s.Conn.Read, bytes)
+}
+
+func (s *session) Write(bytes []byte) (n int, err error) {
+	return s.log.traceIO("Write", s.Conn.Write, bytes)
 }

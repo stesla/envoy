@@ -35,7 +35,10 @@ func CloseAll() {
 }
 
 func ConnectProxy(key string, conn telnet.Conn, addr string, toSend []byte) (Proxy, error) {
-	proxy, isNew := findProxyByKey(key)
+	proxy, isNew := findProxyByKey(key, logrus.Fields{
+		"type": "server",
+		"peer": addr,
+	})
 	if isNew {
 		if err := proxy.openLog(); err != nil {
 			return nil, err
@@ -72,17 +75,18 @@ func ReopenLogFiles() {
 type proxyImpl struct {
 	key         string
 	mux         sync.Mutex
-	log         io.WriteCloser
+	upstreamLog io.WriteCloser
+	log         *logrusLogger
 	upstream    telnet.Conn
 	downstreams []io.WriteCloser
 }
 
-func findProxyByKey(key string) (*proxyImpl, bool) {
+func findProxyByKey(key string, fields logrus.Fields) (*proxyImpl, bool) {
 	proxiesMutex.Lock()
 	defer proxiesMutex.Unlock()
 	_, found := proxies[key]
 	if !found {
-		proxies[key] = &proxyImpl{key: key}
+		proxies[key] = &proxyImpl{key: key, log: newLogrusLogger(log, fields)}
 	}
 	return proxies[key], !found
 }
@@ -99,8 +103,12 @@ func (p *proxyImpl) AddDownstream(downstream io.WriteCloser) {
 	p.downstreams = append(p.downstreams, downstream)
 }
 
-func (p *proxyImpl) Write(bytes []byte) (int, error) {
-	return p.upstream.Write(bytes)
+func (p *proxyImpl) Read(bytes []byte) (n int, err error) {
+	return p.log.traceIO("Read", p.upstream.Read, bytes)
+}
+
+func (p *proxyImpl) Write(bytes []byte) (n int, err error) {
+	return p.log.traceIO("Write", p.upstream.Write, bytes)
 }
 
 func (p *proxyImpl) connect(addr string) (err error) {
@@ -108,10 +116,7 @@ func (p *proxyImpl) connect(addr string) (err error) {
 	if err != nil {
 		return
 	}
-	p.upstream.SetLogger(newLogrusLogger(log, logrus.Fields{
-		"type": "server",
-		"peer": addr,
-	}))
+	p.upstream.SetLogger(p.log)
 	p.negotiateOptions()
 	return
 }
@@ -135,8 +140,8 @@ func (p *proxyImpl) closeLog() {
 	p.mux.Lock()
 	defer p.mux.Unlock()
 	t := time.Now()
-	fmt.Fprintf(p.log, "--------------- closed - %s ---------------\n", t.Format(logSepFormat))
-	p.log.Close()
+	fmt.Fprintf(p.upstreamLog, "--------------- closed - %s ---------------\n", t.Format(logSepFormat))
+	p.upstreamLog.Close()
 }
 
 func (p *proxyImpl) closeUpstream() {
@@ -198,10 +203,10 @@ func (p *proxyImpl) openLog() error {
 		return err
 	}
 	p.mux.Lock()
-	p.log = log
+	p.upstreamLog = log
 	p.mux.Unlock()
 	t := time.Now()
-	fmt.Fprintf(p.log, bannerLogOpened+" - %s ---------------\n", t.Format(logSepFormat))
+	fmt.Fprintf(p.upstreamLog, bannerLogOpened+" - %s ---------------\n", t.Format(logSepFormat))
 	return err
 }
 
@@ -230,10 +235,8 @@ func (p *proxyImpl) readHistory() ([]byte, error) {
 		return nil, err
 	}
 	buf = buf[:n]
-	log.Print("read history: len(buf) before:", len(buf))
 	for {
 		i := strings.Index(string(buf), bannerLogOpened)
-		log.Print("read history: i = ", i)
 		if i > 0 {
 			buf = buf[i:]
 			i := strings.Index(string(buf), "\n")
@@ -242,7 +245,6 @@ func (p *proxyImpl) readHistory() ([]byte, error) {
 			break
 		}
 	}
-	log.Print("read history: len(buf) after:", len(buf))
 	return buf, nil
 }
 
@@ -256,7 +258,7 @@ func (p *proxyImpl) runForever() {
 	defer p.Close()
 	for {
 		var buf = make([]byte, 4096)
-		n, err := p.upstream.Read(buf)
+		n, err := p.Read(buf)
 		if err != nil {
 			return
 		}
@@ -291,5 +293,5 @@ func (p *proxyImpl) sendDownstream(buf []byte) {
 func (p *proxyImpl) writeLog(buf []byte) (int, error) {
 	p.mux.Lock()
 	defer p.mux.Unlock()
-	return p.log.Write(buf)
+	return p.upstreamLog.Write(buf)
 }

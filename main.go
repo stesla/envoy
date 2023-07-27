@@ -68,10 +68,6 @@ func main() {
 			log.Fatal(err)
 		}
 		conn := telnet.Server(tcpconn)
-		conn.SetLogger(newLogrusLogger(log, logrus.Fields{
-			"type": "client",
-			"peer": conn.RemoteAddr().String(),
-		}))
 		go func() {
 			defer conn.Close()
 			log.Printf("%s connected", conn.RemoteAddr())
