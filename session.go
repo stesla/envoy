@@ -80,7 +80,7 @@ func (s *session) runForever() {
 	io.Copy(proxy, s)
 }
 
-func (s *session) connectProxy() (Proxy, error) {
+func (s *session) connectProxy() (*Proxy, error) {
 	var buf bytes.Buffer
 	for s.Scan() {
 		line := s.Text()
