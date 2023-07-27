@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -82,20 +83,25 @@ func (s *session) runForever() {
 
 func (s *session) connectProxy() (*Proxy, error) {
 	var buf bytes.Buffer
+	var proxy *Proxy
 	for s.Scan() {
-		line := s.Text()
-		if strings.HasPrefix(line, "connect ") {
-			args := strings.Fields(strings.TrimPrefix(line, "connect "))
-			if len(args) != 2 {
-				fmt.Fprintln(s, "USAGE: connect KEY ADDR")
-				continue
+		switch command, rest, _ := strings.Cut(s.Text(), " "); command {
+		case "connect":
+			if proxy == nil {
+				return nil, errors.New("must provide proxy command before connect command")
 			}
-			key, addr := args[0], args[1]
-			fmt.Fprintln(s, "connect", key, addr, fmt.Sprintf("%q", buf.String()))
-			return ConnectProxy(key, s, addr, buf.Bytes())
-		} else if strings.HasPrefix(line, "send ") {
-			line = strings.TrimPrefix(line, "send ")
-			fmt.Fprintln(&buf, line)
+			proxy.AddDownstream(s)
+			if proxy.IsNew() {
+				return proxy, proxy.Initialize(rest, buf.Bytes())
+			} else {
+				return proxy, proxy.WriteHistoryTo(s)
+			}
+		case "proxy":
+			proxy = ProxyForKey(rest)
+		case "send":
+			fmt.Fprintln(&buf, rest)
+		default:
+			fmt.Fprintln(s, "unrecognized command: ", command)
 		}
 	}
 	// the only case where we ever get here is if we fail to scan, which will

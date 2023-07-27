@@ -28,42 +28,28 @@ func CloseAll() {
 	}
 }
 
-func ConnectProxy(key string, conn telnet.Conn, addr string, toSend []byte) (*Proxy, error) {
-	proxy, isNew := findProxyByKey(key, logrus.Fields{
-		"type": "server",
-		"peer": addr,
-	})
-	if isNew {
-		if err := proxy.openLog(); err != nil {
-			return nil, err
-		}
-		if err := proxy.connect(addr); err != nil {
-			return nil, err
-		}
-		if _, err := proxy.Write(toSend); err != nil {
-			return nil, err
-		}
-		go proxy.runForever()
-	} else {
-		buf, err := proxy.readHistory()
-		if err != nil {
-			return nil, err
-		}
-		_, err = conn.Write(buf)
-		if err != nil {
-			return nil, err
-		}
-	}
-	proxy.AddDownstream(conn)
-	return proxy, nil
-}
-
 func ReopenLogFiles() {
 	proxiesMutex.Lock()
 	defer proxiesMutex.Unlock()
 	for _, proxy := range proxies {
 		proxy.reopenLog()
 	}
+}
+
+func ProxyForKey(key string) *Proxy {
+	proxiesMutex.Lock()
+	defer proxiesMutex.Unlock()
+	_, found := proxies[key]
+	if !found {
+		proxies[key] = &Proxy{key: key}
+	}
+	return proxies[key]
+}
+
+func removeProxyByKey(key string) {
+	proxiesMutex.Lock()
+	defer proxiesMutex.Unlock()
+	delete(proxies, key)
 }
 
 type Proxy struct {
@@ -75,26 +61,35 @@ type Proxy struct {
 	downstreams []io.WriteCloser
 }
 
-func findProxyByKey(key string, fields logrus.Fields) (*Proxy, bool) {
-	proxiesMutex.Lock()
-	defer proxiesMutex.Unlock()
-	_, found := proxies[key]
-	if !found {
-		proxies[key] = &Proxy{key: key, log: newLogrusLogger(log, fields)}
-	}
-	return proxies[key], !found
-}
-
-func removeProxyByKey(key string) {
-	proxiesMutex.Lock()
-	defer proxiesMutex.Unlock()
-	delete(proxies, key)
-}
-
 func (p *Proxy) AddDownstream(downstream io.WriteCloser) {
 	p.mux.Lock()
 	defer p.mux.Unlock()
 	p.downstreams = append(p.downstreams, downstream)
+}
+
+func (p *Proxy) Close() error {
+	p.closeUpstream()
+	p.closeDownstreams()
+	p.closeLog()
+	return nil
+}
+
+func (p *Proxy) Initialize(addr string, toSend []byte) error {
+	if err := p.openLog(); err != nil {
+		return err
+	}
+	if err := p.connect(addr); err != nil {
+		return err
+	}
+	if _, err := p.Write(toSend); err != nil {
+		return err
+	}
+	go p.runForever()
+	return nil
+}
+
+func (p *Proxy) IsNew() bool {
+	return p.upstream == nil
 }
 
 func (p *Proxy) Read(bytes []byte) (n int, err error) {
@@ -105,7 +100,20 @@ func (p *Proxy) Write(bytes []byte) (n int, err error) {
 	return p.log.traceIO("Write", p.upstream.Write, bytes)
 }
 
+func (p *Proxy) WriteHistoryTo(w io.Writer) error {
+	buf, err := p.readHistory()
+	if err != nil {
+		return err
+	}
+	_, err = w.Write(buf)
+	return err
+}
+
 func (p *Proxy) connect(addr string) (err error) {
+	p.log = newLogrusLogger(log, logrus.Fields{
+		"type": "server",
+		"peer": addr,
+	})
 	p.upstream, err = telnet.Dial(addr)
 	if err != nil {
 		return
@@ -113,13 +121,6 @@ func (p *Proxy) connect(addr string) (err error) {
 	p.upstream.SetLogger(p.log)
 	p.negotiateOptions()
 	return
-}
-
-func (p *Proxy) Close() error {
-	p.closeUpstream()
-	p.closeDownstreams()
-	p.closeLog()
-	return nil
 }
 
 func (p *Proxy) closeDownstreams() {
