@@ -5,13 +5,15 @@ import (
 	"io"
 	"os"
 	"path"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stesla/telnet"
-	"golang.org/x/text/encoding/unicode"
+	"golang.org/x/text/encoding"
+	"golang.org/x/text/encoding/ianaindex"
 )
 
 const historySize = 20 * 1024 // about 256 lines of text
@@ -59,6 +61,9 @@ type Proxy struct {
 	log         *logrusLogger
 	upstream    telnet.Conn
 	downstreams []io.WriteCloser
+
+	allowCharsetWithoutBinary bool
+	upstreamEncoding          encoding.Encoding
 }
 
 func (p *Proxy) AddDownstream(downstream io.WriteCloser) {
@@ -94,6 +99,24 @@ func (p *Proxy) IsNew() bool {
 
 func (p *Proxy) Read(bytes []byte) (n int, err error) {
 	return p.log.traceIO("Read", p.upstream.Read, bytes)
+}
+
+func (p *Proxy) SetOption(option string, raw string) error {
+	switch option {
+	case "allow_charset_without_binary":
+		value, err := strconv.ParseBool(raw)
+		if err != nil {
+			return err
+		}
+		p.allowCharsetWithoutBinary = value
+	case "encoding":
+		enc, err := ianaindex.IANA.Encoding(raw)
+		if err != nil {
+			return err
+		}
+		p.upstreamEncoding = enc
+	}
+	return nil
 }
 
 func (p *Proxy) Write(bytes []byte) (n int, err error) {
@@ -156,25 +179,27 @@ func (p *Proxy) negotiateOptions() {
 	for _, opt := range []telnet.Option{
 		telnet.NewSuppressGoAheadOption(),
 		telnet.NewTransmitBinaryOption(),
-		telnet.NewCharsetOption(),
+		telnet.NewCharsetOption(!p.allowCharsetWithoutBinary),
 	} {
 		opt.Allow(true, true)
 		p.upstream.BindOption(opt)
 	}
 
-	p.upstream.AddListener("update-option", telnet.FuncListener{
-		Func: func(data any) {
-			switch t := data.(type) {
-			case telnet.UpdateOptionEvent:
-				switch opt := t.Option; opt.Byte() {
-				case telnet.Charset:
-					if t.WeChanged && opt.EnabledForUs() {
-						p.upstream.RequestEncoding(unicode.UTF8)
+	if p.upstreamEncoding != nil {
+		p.upstream.AddListener("update-option", telnet.FuncListener{
+			Func: func(data any) {
+				switch t := data.(type) {
+				case telnet.UpdateOptionEvent:
+					switch opt := t.Option; opt.Byte() {
+					case telnet.Charset:
+						if t.WeChanged && opt.EnabledForUs() {
+							p.upstream.RequestEncoding(p.upstreamEncoding)
+						}
 					}
 				}
-			}
-		},
-	})
+			},
+		})
+	}
 
 	p.upstream.EnableOptionForThem(telnet.SuppressGoAhead, true)
 	p.upstream.EnableOptionForUs(telnet.SuppressGoAhead, true)

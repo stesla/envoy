@@ -39,7 +39,7 @@ func (s *session) negotiateOptions() {
 	for _, opt := range []telnet.Option{
 		telnet.NewSuppressGoAheadOption(),
 		telnet.NewTransmitBinaryOption(),
-		telnet.NewCharsetOption(),
+		telnet.NewCharsetOption(true),
 	} {
 		opt.Allow(true, true)
 		s.BindOption(opt)
@@ -88,13 +88,21 @@ func (s *session) connectProxy() (*Proxy, error) {
 		switch command, rest, _ := strings.Cut(s.Text(), " "); command {
 		case "connect":
 			if proxy == nil {
-				return nil, errors.New("must provide proxy command before connect command")
+				return nil, errors.New("you must select a proxy to connect")
 			}
 			proxy.AddDownstream(s)
 			if proxy.IsNew() {
 				return proxy, proxy.Initialize(rest, buf.Bytes())
 			} else {
 				return proxy, proxy.WriteHistoryTo(s)
+			}
+		case "option":
+			if proxy == nil {
+				return nil, errors.New("you must select a proxy to set options")
+			}
+			option, value, _ := strings.Cut(rest, " ")
+			if err := proxy.SetOption(option, value); err != nil {
+				return nil, err
 			}
 		case "proxy":
 			proxy = ProxyForKey(rest)
