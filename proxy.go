@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path"
 	"strconv"
@@ -63,6 +64,7 @@ type Proxy struct {
 	downstreams []io.WriteCloser
 
 	allowCharsetWithoutBinary bool
+	forceSuppressGoAhead      bool
 	upstreamEncoding          encoding.Encoding
 }
 
@@ -97,8 +99,8 @@ func (p *Proxy) IsNew() bool {
 	return p.upstream == nil
 }
 
-func (p *Proxy) Read(bytes []byte) (n int, err error) {
-	return p.log.traceIO("Read", p.upstream.Read, bytes)
+func (p *Proxy) Read(bytes []byte) (int, error) {
+	return p.upstream.Read(bytes)
 }
 
 func (p *Proxy) SetOption(option string, raw string) error {
@@ -115,12 +117,18 @@ func (p *Proxy) SetOption(option string, raw string) error {
 			return err
 		}
 		p.upstreamEncoding = enc
+	case "force_suppress_go_ahead":
+		value, err := strconv.ParseBool(raw)
+		if err != nil {
+			return err
+		}
+		p.forceSuppressGoAhead = value
 	}
 	return nil
 }
 
-func (p *Proxy) Write(bytes []byte) (n int, err error) {
-	return p.log.traceIO("Write", p.upstream.Write, bytes)
+func (p *Proxy) Write(bytes []byte) (int, error) {
+	return p.upstream.Write(bytes)
 }
 
 func (p *Proxy) WriteHistoryTo(w io.Writer) error {
@@ -137,7 +145,8 @@ func (p *Proxy) connect(addr string) (err error) {
 		"type": "server",
 		"peer": addr,
 	})
-	p.upstream, err = telnet.Dial(addr)
+	tcpconn, err := net.Dial("tcp", addr)
+	p.upstream = telnet.Client(p.log.traceConnection(tcpconn))
 	if err != nil {
 		return
 	}
@@ -176,11 +185,14 @@ func (p *Proxy) logFileName() string {
 }
 
 func (p *Proxy) negotiateOptions() {
-	for _, opt := range []telnet.Option{
-		telnet.NewSuppressGoAheadOption(),
+	options := []telnet.Option{
 		telnet.NewTransmitBinaryOption(),
 		telnet.NewCharsetOption(!p.allowCharsetWithoutBinary),
-	} {
+	}
+	if !p.forceSuppressGoAhead {
+		options = append(options, telnet.NewSuppressGoAheadOption())
+	}
+	for _, opt := range options {
 		opt.Allow(true, true)
 		p.upstream.BindOption(opt)
 	}
@@ -201,8 +213,12 @@ func (p *Proxy) negotiateOptions() {
 		})
 	}
 
-	p.upstream.EnableOptionForThem(telnet.SuppressGoAhead, true)
-	p.upstream.EnableOptionForUs(telnet.SuppressGoAhead, true)
+	if p.forceSuppressGoAhead {
+		p.upstream.SuppressGoAhead(true)
+	} else {
+		p.upstream.EnableOptionForThem(telnet.SuppressGoAhead, true)
+		p.upstream.EnableOptionForUs(telnet.SuppressGoAhead, true)
+	}
 
 	p.upstream.EnableOptionForThem(telnet.TransmitBinary, true)
 	p.upstream.EnableOptionForUs(telnet.TransmitBinary, true)
