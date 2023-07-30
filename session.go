@@ -3,11 +3,11 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
 
-	"github.com/sirupsen/logrus"
 	"github.com/stesla/telnet"
 	"golang.org/x/text/encoding/unicode"
 )
@@ -20,14 +20,11 @@ type session struct {
 	password string
 }
 
-func newSession(client telnet.Conn, password string) *session {
+func newSession(client telnet.Conn, password string, log *logrusLogger) *session {
 	session := &session{
 		Conn:     client,
 		password: password,
-		log: newLogrusLogger(log, logrus.Fields{
-			"type": "client",
-			"peer": client.RemoteAddr().String(),
-		}),
+		log:      log,
 	}
 	session.Conn.SetLogger(session.log)
 	session.Scanner = bufio.NewScanner(session)
@@ -38,7 +35,7 @@ func (s *session) negotiateOptions() {
 	for _, opt := range []telnet.Option{
 		telnet.NewSuppressGoAheadOption(),
 		telnet.NewTransmitBinaryOption(),
-		telnet.NewCharsetOption(),
+		telnet.NewCharsetOption(true),
 	} {
 		opt.Allow(true, true)
 		s.BindOption(opt)
@@ -80,22 +77,35 @@ func (s *session) runForever() {
 	io.Copy(proxy, s)
 }
 
-func (s *session) connectProxy() (Proxy, error) {
+func (s *session) connectProxy() (*Proxy, error) {
 	var buf bytes.Buffer
+	var proxy *Proxy
 	for s.Scan() {
-		line := s.Text()
-		if strings.HasPrefix(line, "connect ") {
-			args := strings.Fields(strings.TrimPrefix(line, "connect "))
-			if len(args) != 2 {
-				fmt.Fprintln(s, "USAGE: connect KEY ADDR")
-				continue
+		switch command, rest, _ := strings.Cut(s.Text(), " "); command {
+		case "connect":
+			if proxy == nil {
+				return nil, errors.New("you must select a proxy to connect")
 			}
-			key, addr := args[0], args[1]
-			fmt.Fprintln(s, "connect", key, addr, fmt.Sprintf("%q", buf.String()))
-			return ConnectProxy(key, s, addr, buf.Bytes())
-		} else if strings.HasPrefix(line, "send ") {
-			line = strings.TrimPrefix(line, "send ")
-			fmt.Fprintln(&buf, line)
+			proxy.AddDownstream(s)
+			if proxy.IsNew() {
+				return proxy, proxy.Initialize(rest, buf.Bytes())
+			} else {
+				return proxy, proxy.WriteHistoryTo(s)
+			}
+		case "option":
+			if proxy == nil {
+				return nil, errors.New("you must select a proxy to set options")
+			}
+			option, value, _ := strings.Cut(rest, " ")
+			if err := proxy.SetOption(option, value); err != nil {
+				return nil, err
+			}
+		case "proxy":
+			proxy = ProxyForKey(rest)
+		case "send":
+			fmt.Fprintln(&buf, rest)
+		default:
+			fmt.Fprintln(s, "unrecognized command: ", command)
 		}
 	}
 	// the only case where we ever get here is if we fail to scan, which will
@@ -108,12 +118,4 @@ func (s *session) isAuthenticated() bool {
 		return s.Text() == "login "+s.password
 	}
 	return false
-}
-
-func (s *session) Read(bytes []byte) (n int, err error) {
-	return s.log.traceIO("Read", s.Conn.Read, bytes)
-}
-
-func (s *session) Write(bytes []byte) (n int, err error) {
-	return s.log.traceIO("Write", s.Conn.Write, bytes)
 }
